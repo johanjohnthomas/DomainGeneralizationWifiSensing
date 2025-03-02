@@ -1,0 +1,2841 @@
+./plots_utility.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+from matplotlib import rcParams
+import math as mt
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
+rcParams['font.family'] = 'serif'
+rcParams['font.serif'] = 'Times'
+rcParams['text.usetex'] = 'true'
+rcParams['text.latex.preamble'] = r'\usepackage{newtxmath}'
+rcParams['font.size'] = 16
+
+
+def plot_r_angle(complex_opt_r, start_plot, end_plot, delta_t, save_name):
+    plt.figure()
+    plt.stem(np.unwrap(np.angle(complex_opt_r)))
+    plt.grid()
+    plt.xlabel(r'delay tot [s]')
+    plt.ylabel(r'$angle(\mathbf{r})|$')
+    plt.xticks(np.arange(0, complex_opt_r.shape[0], 10),
+               np.round(np.arange(start_plot, end_plot, 10 * delta_t), 10))
+    name_file = './plots/r_angle_' + save_name + '.png'
+    plt.savefig(name_file, bbox_inches='tight')
+
+
+def plot_r_abs(complex_opt_r, start_plot, end_plot, delta_t, save_name):
+    plt.figure()
+    plt.stem(np.abs(complex_opt_r))
+    plt.grid()
+    plt.xlabel(r'delay tot [s]')
+    plt.ylabel(r'$|\mathbf{r}|$')
+    plt.xticks(np.arange(0, complex_opt_r.shape[0], 10),
+               np.round(np.arange(start_plot, end_plot, 10 * delta_t), 10))
+    name_file = './plots/r_abs_' + save_name + '.png'
+    plt.savefig(name_file, bbox_inches='tight')
+
+
+def plot_abs_comparison(H_true, H_estimated, save_name):
+    plt.figure()
+    plt.plot(abs(H_true), label=r'$|\mathbf{H}|$')
+    plt.plot(abs(H_estimated), label=r'$|\hat{\mathbf{H}}|$')
+    plt.grid()
+    plt.legend()
+    plt.xlabel('sub-channel')
+    plt.ylabel('amplitude')
+    name_file = './plots/amplitude_H_' + save_name + '.png'
+    plt.savefig(name_file, bbox_inches='tight')
+
+
+def plot_angle_comparison(H_true, H_estimated, save_name):
+    plt.figure()
+    plt.plot(np.unwrap(np.angle(H_true)), label=r'$|\mathbf{H}|$')
+    plt.plot(np.unwrap(np.angle(H_estimated)), label=r'$|\hat{\mathbf{H}}|$')
+    plt.grid()
+    plt.legend()
+    plt.xlabel('sub-channel')
+    plt.ylabel('phase')
+    name_file = './plots/phase_H_' + save_name + '.png'
+    plt.savefig(name_file, bbox_inches='tight')
+
+
+def plot_gridspec_abs(H_true, H_estimated, H_estimated_sanitized, save_name):
+    fig = plt.figure()
+    gs = gridspec.GridSpec(1, 3, hspace=0.6, wspace=0.3, figure=fig)
+    ax1 = fig.add_subplot(gs[(0, 0)])
+    ax1.plot(np.abs(H_true))
+    ax1.set_title('Signal with offsets')
+    ax1.set_ylabel('amplitude')
+    ax1.set_xlabel('sub-channel')
+    ax1.grid()
+    ax2 = fig.add_subplot(gs[(0, 1)])
+    ax2.plot(np.abs(H_estimated))
+    ax2.set_title('Signal reconstructed')
+    ax2.set_ylabel('amplitude')
+    ax2.set_xlabel('sub-channel')
+    ax2.grid()
+    ax3 = fig.add_subplot(gs[(0, 2)])
+    ax3.plot(np.abs(H_estimated_sanitized))
+    ax3.set_title('Signal reconstructed no offset')
+    ax3.set_ylabel('amplitude')
+    ax3.set_xlabel('sub-channel')
+    ax3.grid()
+    name_file = './plots/amplitude_comparison_' + save_name + '.png'
+    plt.savefig(name_file, bbox_inches='tight')
+
+
+def plot_gridspec_angle(H_true, H_estimated, H_estimated_sanitized, save_name):
+    fig = plt.figure()
+    gs = gridspec.GridSpec(1, 3, hspace=0.6, wspace=0.3, figure=fig)
+    ax1 = fig.add_subplot(gs[(0, 0)])
+    ax1.plot(np.unwrap(np.angle(H_true)))
+    ax1.set_title('Signal with offsets')
+    ax1.set_ylabel('phase')
+    ax1.set_xlabel('sub-channel')
+    ax1.grid()
+    ax2 = fig.add_subplot(gs[(0, 1)])
+    ax2.plot(np.unwrap(np.angle(H_estimated)))
+    ax2.set_title('Signal reconstructed')
+    ax2.set_ylabel('phase')
+    ax2.set_xlabel('sub-channel')
+    ax2.grid()
+    ax3 = fig.add_subplot(gs[(0, 2)])
+    ax3.plot(np.unwrap(np.angle(H_estimated_sanitized)))
+    ax3.set_title('Signal reconstructed no offset')
+    ax3.set_ylabel('phase')
+    ax3.set_xlabel('sub-channel')
+    ax3.grid()
+    name_file = './plots/phase_comparison_' + save_name + '.png'
+    plt.savefig(name_file, bbox_inches='tight')
+
+
+def plt_antennas(spectrum_list, name_plot, step=100):
+    fig = plt.figure()
+    gs = gridspec.GridSpec(len(spectrum_list), 1, figure=fig)
+    ticks_x = np.arange(0, spectrum_list[0].shape[0], step)
+    ax = []
+
+    for p_i in range(len(spectrum_list)):
+        ax1 = fig.add_subplot(gs[(p_i, 0)])
+        plt1 = ax1.pcolormesh(spectrum_list[p_i].T, shading='gouraud', cmap='viridis', linewidth=0, rasterized=True)
+        plt1.set_edgecolor('face')
+        ax1.set_ylabel(r'sub-channel')
+        ax1.set_xlabel(r'time [s]')
+        ax1.set_xticks(ticks_x)
+        ax1.set_xticklabels(ticks_x * 6e-3)
+        ax.append(ax1)
+
+    for axi in ax:
+        axi.label_outer()
+    fig.set_size_inches(20, 10)
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_doppler_antennas(doppler_spectrum_list, sliding_lenght, delta_v, name_plot):
+    if doppler_spectrum_list:
+        fig = plt.figure()
+        gs = gridspec.GridSpec(4, 1, figure=fig)
+        step = 15
+        length_v = mt.floor(doppler_spectrum_list[0].shape[1] / 2)
+        factor_v = step * (mt.floor(length_v / step))
+        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+        ticks_x = np.arange(0, doppler_spectrum_list[0].shape[0], int(doppler_spectrum_list[0].shape[0]/20))
+        ax = []
+
+        for p_i in range(len(doppler_spectrum_list)):
+            ax1 = fig.add_subplot(gs[(p_i, 0)])
+            plt1 = ax1.pcolormesh(doppler_spectrum_list[p_i].T, cmap='viridis', linewidth=0, rasterized=True)
+            plt1.set_edgecolor('face')
+            cbar1 = fig.colorbar(plt1)
+            cbar1.ax.set_ylabel('power [dB]', rotation=270, labelpad=14)
+            ax1.set_ylabel(r'velocity [m/s]')
+            ax1.set_xlabel(r'time [s]')
+            ax1.set_yticks(ticks_y + 0.5)
+            ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+            ax1.set_xticks(ticks_x)
+            ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+            ax.append(ax1)
+
+        for axi in ax:
+            axi.label_outer()
+        fig.set_size_inches(20, 10)
+        plt.savefig(name_plot, bbox_inches='tight')
+        plt.close()
+
+
+def plt_confusion_matrix(number_activities, confusion_matrix, activities, name):
+    confusion_matrix_normaliz_row = np.transpose(confusion_matrix / np.sum(confusion_matrix, axis=1).reshape(-1, 1))
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(5.5, 4)
+    ax = fig.add_axes((0.18, 0.15, 0.6, 0.8))
+    im1 = ax.pcolor(np.linspace(0.5, number_activities + 0.5, number_activities + 1),
+                    np.linspace(0.5, number_activities + 0.5, number_activities + 1),
+                    confusion_matrix_normaliz_row, cmap='Blues', edgecolors='black', vmin=0, vmax=1)
+    ax.set_xlabel('Actual activity', FontSize=18)
+    ax.set_xticks(np.linspace(1, number_activities, number_activities))
+    ax.set_xticklabels(labels=activities, FontSize=18)
+    ax.set_yticks(np.linspace(1, number_activities, number_activities))
+    ax.set_yticklabels(labels=activities, FontSize=18, rotation=45)
+    ax.set_ylabel('Predicted activity', FontSize=18)
+
+    for x_ax in range(confusion_matrix_normaliz_row.shape[0]):
+        for y_ax in range(confusion_matrix_normaliz_row.shape[1]):
+            col = 'k'
+            value_c = round(confusion_matrix_normaliz_row[x_ax, y_ax], 2)
+            if value_c > 0.6:
+                col = 'w'
+            if value_c > 0:
+                ax.text(y_ax + 1, x_ax + 1, '%.2f' % value_c, horizontalalignment='center',
+                        verticalalignment='center', fontsize=16, color=col)
+
+    cbar_ax = fig.add_axes([0.83, 0.15, 0.03, 0.8])
+    cbar = fig.colorbar(im1, cax=cbar_ax)
+    cbar.ax.set_ylabel('Accuracy', FontSize=18)
+    cbar.ax.tick_params(axis="y", labelsize=16)
+
+    plt.tight_layout()
+    name_fig = './plots/cm_' + name + '.pdf'
+    plt.savefig(name_fig)
+
+
+def plt_doppler_activities(doppler_spectrum_list, antenna, csi_label_dict, sliding_lenght, delta_v, name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(15, 3)
+    widths = [1, 1, 1, 1, 1, 0.5]
+    heights = [1]
+    gs = fig.add_gridspec(ncols=6, nrows=1, width_ratios=widths, height_ratios=heights)
+    step = 20
+    step_x = 5
+    ax = []
+    for a_i in range(5):
+        act = doppler_spectrum_list[a_i][antenna]
+        length_v = mt.floor(act.shape[1] / 2)
+        factor_v = step * (mt.floor(length_v / step))
+        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+        ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+
+        ax1 = fig.add_subplot(gs[(0, a_i)])
+        plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)  # , shading='gouraud')
+        plt1.set_edgecolor('face')
+        ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+        ax1.set_xlabel(r'time [s]')
+        ax1.set_yticks(ticks_y + 0.5)
+        ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+        ax1.set_xticks(ticks_x)
+        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+
+        title_p = csi_label_dict[a_i]
+        ax1.set_title(title_p)
+        ax.append(ax1)
+
+        if a_i == 4:
+            cbar_ax = fig.add_axes([0.92, 0.2, 0.01, 0.7])
+            cbar1 = fig.colorbar(plt1,  cax=cbar_ax, ticks=[-12, -8, -4, 0])
+            cbar1.ax.set_ylabel('normalized power [dB]')
+
+    for axi in ax:
+        axi.label_outer()
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_doppler_activities_compact(doppler_spectrum_list, antenna, csi_label_dict, sliding_lenght, delta_v,
+                                       name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(8, 5.5)
+    widths = [1, 1, 1, 1, 1, 1, 0.5]
+    heights = [1, 1]
+    gs = fig.add_gridspec(ncols=7, nrows=2, width_ratios=widths, height_ratios=heights)
+    step = 20
+    step_x = 5
+    ax = []
+    list_plts_pos_row = [0, 0, 1, 1, 1]
+    list_plts_pos_col_start = [1, 3, 0, 2, 4]
+    list_plts_pos_col_end = [3, 5, 2, 4, 6]
+    for a_i in range(5):
+        act = doppler_spectrum_list[a_i][antenna]
+        length_v = mt.floor(act.shape[1] / 2)
+        factor_v = step * (mt.floor(length_v / step))
+        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+        ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+
+        ax1 = fig.add_subplot(gs[list_plts_pos_row[a_i], list_plts_pos_col_start[a_i]:list_plts_pos_col_end[a_i]])
+        plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
+        plt1.set_edgecolor('face')
+        ax1.set_xlabel(r'time [s]')
+        ax1.set_yticks(ticks_y + 0.5)
+        if a_i == 0 or a_i == 2:
+            ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+            ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+        else:
+            ax1.set_yticklabels([])
+            ax1.set_ylabel('')
+        ax1.set_xticks(ticks_x)
+        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+
+        title_p = csi_label_dict[a_i]
+        ax1.set_title(title_p)
+        ax.append(ax1)
+
+        if a_i == 1 or a_i == 4:
+            cbar_ax = fig.add_axes([0.98, 0.2, 0.02, 0.7])
+            cbar1 = fig.colorbar(plt1,  cax=cbar_ax, ticks=[-12, -8, -4, 0])
+            cbar1.ax.set_ylabel('normalized power [dB]')
+
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_doppler_activity_single(input_a, antenna, sliding_lenght, delta_v, name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(3, 3)
+    step = 20
+    step_x = 5
+    act = input_a[antenna][:340, :]
+    length_v = mt.floor(act.shape[1] / 2)
+    factor_v = step * (mt.floor(length_v / step))
+    ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+    ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+
+    ax1 = fig.add_subplot()
+    plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
+    plt1.set_edgecolor('face')
+    ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+    ax1.set_xlabel(r'time [s]')
+    ax1.set_yticks(ticks_y + 0.5)
+    ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+    ax1.set_xticks(ticks_x)
+    ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 1))
+
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_doppler_comparison(doppler_spectrum_list, csi_label_dict, sliding_lenght, delta_v, name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(15, 3)
+    widths = [1, 1, 1, 1, 1, 0.5]
+    heights = [1]
+    gs = fig.add_gridspec(ncols=6, nrows=1, width_ratios=widths, height_ratios=heights)
+    step = 20
+    step_x = 5
+    ax = []
+    for a_i in range(5):
+        act = doppler_spectrum_list[a_i]
+        length_v = mt.floor(act.shape[1] / 2)
+        factor_v = step * (mt.floor(length_v / step))
+        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+        ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+
+        ax1 = fig.add_subplot(gs[(0, int(a_i))])
+        plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
+        plt1.set_edgecolor('face')
+        ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+        ax1.set_xlabel(r'time [s]')
+        ax1.set_yticks(ticks_y + 0.5)
+        ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+        ax1.set_xticks(ticks_x)
+        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+
+        title_p = csi_label_dict[a_i]
+        ax1.set_title(title_p)
+        ax.append(ax1)
+
+        if a_i == 4:
+            cbar_ax = fig.add_axes([0.92, 0.2, 0.01, 0.7])
+            cbar1 = fig.colorbar(plt1,  cax=cbar_ax, ticks=[-30, -25, -20, -15, -10, -5, 0])
+            cbar1.ax.set_ylabel('normalized power [dB]')
+
+    for axi in ax:
+        axi.label_outer()
+
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_amplitude_phase(ampl, phase_raw, phase_proc, name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(10.6, 3)
+    widths = [1, 0.3, 1, 0.3, 1, 0.3]
+    heights = [1]
+    gs = fig.add_gridspec(ncols=6, nrows=1, width_ratios=widths,  height_ratios=heights)
+    step_x = 5
+    ax = []
+
+    data_list = [ampl, phase_raw, phase_proc]
+    titles = [r'amplitude', r'raw phase', r'sanitized phase']
+
+    for p_i in range(0, 6, 2):
+        ax1 = fig.add_subplot(gs[(0, p_i)])
+        a_i = int(p_i/2)
+        plt1 = ax1.pcolormesh(data_list[a_i], cmap='viridis', linewidth=0, rasterized=True)
+        plt1.set_edgecolor('face')
+        ax1.set_ylabel(r'sub-channel')
+        ax1.set_xlabel(r'time [s]')
+
+        ticks_y = np.asarray([0, 30, 60, 90, 122, 154, 184, 214, 244])
+        ax1.set_yticks(ticks_y + 0.5)
+        ax1.set_yticklabels(ticks_y - 122)
+
+        ticks_x = np.arange(0, data_list[a_i].shape[1] + 1, int(data_list[a_i].shape[1]/step_x))
+        ax1.set_xticks(ticks_x)
+        ax1.set_xticklabels(np.round(ticks_x * 6e-3, 2))
+
+        title_p = titles[a_i]
+        ax1.set_title(title_p)
+        ax.append(ax1)
+
+        axins = inset_axes(ax1,
+                           width="8%",  # width = 5% of parent_bbox width
+                           height="100%",  # height : 50%
+                           loc='lower left',
+                           bbox_to_anchor=(1.1, 0., 1, 1),
+                           bbox_transform=ax1.transAxes,
+                           borderpad=0,
+                           )
+        cbar1 = fig.colorbar(plt1, cax=axins)
+        cbar1.ax.set_ylabel('power [dB]')
+
+    for axi in ax:
+        axi.label_outer()
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_amplitude_phase_vert(ampl, phase_raw, phase_proc, name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(3.1, 8)
+    widths = [1]
+    heights = [1, 1, 1]
+    gs = fig.add_gridspec(ncols=1, nrows=3, width_ratios=widths,  height_ratios=heights)
+    step_x = 5
+    ax = []
+
+    data_list = [ampl, phase_raw, phase_proc]
+    titles = [r'amplitude', r'raw phase', r'sanitized phase']
+
+    for p_i in range(0, 3):
+        ax1 = fig.add_subplot(gs[(p_i, 0)])
+        a_i = p_i
+        plt1 = ax1.pcolormesh(data_list[a_i], cmap='viridis', linewidth=0, rasterized=True)
+        plt1.set_edgecolor('face')
+        ax1.set_ylabel(r'sub-channel')
+        ax1.set_xlabel(r'time [s]')
+
+        ticks_y = np.asarray([0, 30, 60, 90, 122, 154, 184, 214, 244])
+        ax1.set_yticks(ticks_y + 0.5)
+        ax1.set_yticklabels(ticks_y - 122)
+
+        ticks_x = np.arange(0, data_list[a_i].shape[1] + 1, int(data_list[a_i].shape[1]/step_x))
+        ax1.set_xticks(ticks_x)
+        ax1.set_xticklabels(np.round(ticks_x * 6e-3, 2))
+
+        title_p = titles[a_i]
+        ax1.set_title(title_p)
+        ax.append(ax1)
+
+        axins = inset_axes(ax1,
+                           width="8%",  # width = 5% of parent_bbox width
+                           height="100%",  # height : 50%
+                           loc='lower left',
+                           bbox_to_anchor=(1.1, 0., 1, 1),
+                           bbox_transform=ax1.transAxes,
+                           borderpad=0,
+                           )
+        cbar1 = fig.colorbar(plt1, cax=axins)
+        cbar1.ax.set_ylabel('power [dB]')
+
+    for axi in ax:
+        axi.label_outer()
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_amplitude_phase_horiz(ampl, phase_raw, phase_proc, name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(8, 2.8)
+    widths = [1, 1, 1]
+    heights = [1]
+    gs = fig.add_gridspec(ncols=3, nrows=1, width_ratios=widths,  height_ratios=heights)
+    step_x = 5
+    ax = []
+
+    data_list = [ampl, phase_raw, phase_proc]
+    titles = [r'amplitude', r'raw phase', r'sanitized phase']
+
+    for p_i in range(0, 3):
+        ax1 = fig.add_subplot(gs[(0, p_i)])
+        a_i = p_i
+        plt1 = ax1.pcolormesh(data_list[a_i], cmap='viridis', linewidth=0, rasterized=True)
+        plt1.set_edgecolor('face')
+        ax1.set_ylabel(r'sub-channel')
+        ax1.set_xlabel(r'time [s]')
+
+        ticks_y = np.asarray([0, 30, 60, 90, 122, 154, 184, 214, 244])
+        ax1.set_yticks(ticks_y + 0.5)
+        ax1.set_yticklabels(ticks_y - 122)
+
+        ticks_x = np.arange(0, data_list[a_i].shape[1] + 1, int(data_list[a_i].shape[1]/step_x))
+        ax1.set_xticks(ticks_x)
+        ax1.set_xticklabels(np.round(ticks_x * 6e-3, 2))
+
+        title_p = titles[a_i]
+        ax1.set_title(title_p)
+        ax.append(ax1)
+
+        axins = inset_axes(ax1,
+                           width="100%",  # width = 5% of parent_bbox width
+                           height="20%",  # height : 50%
+                           bbox_to_anchor=(0.055, -0.6, 1., 0.3),
+                           bbox_transform=ax1.transAxes
+                           )
+
+        cbar1 = fig.colorbar(plt1, cax=axins, orientation='horizontal')
+        cbar1.ax.set_ylabel(r'[dB]')
+
+    for axi in ax:
+        axi.label_outer()
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_amplitude(ampl, name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(4, 3)
+    widths = [1, 0.3]
+    heights = [1]
+    gs = fig.add_gridspec(ncols=2, nrows=1, width_ratios=widths,  height_ratios=heights)
+    step_x = 5
+    ax = []
+
+    ax1 = fig.add_subplot(gs[(0, 0)])
+    plt1 = ax1.pcolormesh(ampl, cmap='viridis', linewidth=0, rasterized=True)  # , shading='gouraud')
+    plt1.set_edgecolor('face')
+    ax1.set_ylabel(r'sub-channel')
+    ax1.set_xlabel(r'time [s]')
+
+    ticks_y = np.asarray([0, 30, 60, 90, 122, 154, 184, 214, 244])
+    ax1.set_yticks(ticks_y + 0.5)
+    ax1.set_yticklabels(ticks_y - 122)
+
+    ticks_x = np.arange(0, ampl.shape[1] + 1, int(ampl.shape[1]/step_x))
+    ax1.set_xticks(ticks_x)
+    ax1.set_xticklabels(np.round(ticks_x * 6e-3, 2))
+
+    ax.append(ax1)
+
+    axins = inset_axes(ax1,
+                       width="8%",  # width = 5% of parent_bbox width
+                       height="100%",  # height : 50%
+                       loc='lower left',
+                       bbox_to_anchor=(1.1, 0., 1, 1),
+                       bbox_transform=ax1.transAxes,
+                       borderpad=0,
+                       )
+    cbar1 = fig.colorbar(plt1, cax=axins)
+    cbar1.ax.set_ylabel(r'[dB]')
+
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_phase(phase_raw, phase_proc, name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(7, 3)
+    widths = [1, 0.3, 1, 0.3]
+    heights = [1]
+    gs = fig.add_gridspec(ncols=4, nrows=1, width_ratios=widths,  height_ratios=heights)
+    step_x = 5
+    ax = []
+
+    data_list = [phase_raw, phase_proc]
+    titles = [r'raw phase', r'sanitized phase']
+
+    for p_i in range(0, 4, 2):
+        ax1 = fig.add_subplot(gs[(0, p_i)])
+        a_i = int(p_i/2)
+        plt1 = ax1.pcolormesh(data_list[a_i], cmap='viridis', linewidth=0, rasterized=True)
+        plt1.set_edgecolor('face')
+        ax1.set_ylabel(r'sub-channel')
+        ax1.set_xlabel(r'time [s]')
+
+        ticks_y = np.asarray([0, 30, 60, 90, 122, 154, 184, 214, 244])
+        ax1.set_yticks(ticks_y + 0.5)
+        ax1.set_yticklabels(ticks_y - 122)
+
+        ticks_x = np.arange(0, data_list[a_i].shape[1] + 1, int(data_list[a_i].shape[1]/step_x))
+        ax1.set_xticks(ticks_x)
+        ax1.set_xticklabels(np.round(ticks_x * 6e-3, 2))
+
+        title_p = titles[a_i]
+        ax1.set_title(title_p)
+        ax.append(ax1)
+
+        axins = inset_axes(ax1,
+                           width="8%",  # width = 5% of parent_bbox width
+                           height="100%",  # height : 50%
+                           loc='lower left',
+                           bbox_to_anchor=(1.1, 0., 1, 1),
+                           bbox_transform=ax1.transAxes,
+                           borderpad=0,
+                           )
+        cbar1 = fig.colorbar(plt1, cax=axins)
+        cbar1.ax.set_ylabel('power [dB]')
+
+    for axi in ax:
+        axi.label_outer()
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_fft_doppler_activities(doppler_spectrum_list, antenna, csi_label_dict, sliding_lenght, delta_v, name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(15, 3)
+    widths = [1, 1, 1, 1, 1, 0.5]
+    heights = [1]
+    gs = fig.add_gridspec(ncols=6, nrows=1, width_ratios=widths, height_ratios=heights)
+    step = 20
+    step_x = 5
+    ax = []
+    for a_i in range(5):
+        act = doppler_spectrum_list[a_i][antenna]
+        length_v = mt.floor(act.shape[1] / 2)
+        factor_v = step * (mt.floor(length_v / step))
+        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+        ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+
+        ax1 = fig.add_subplot(gs[(0, a_i)])
+        plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)  # , shading='gouraud')
+        plt1.set_edgecolor('face')
+        ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+        ax1.set_xlabel(r'time [s]')
+        ax1.set_yticks(ticks_y + 0.5)
+        ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+        ax1.set_xticks(ticks_x)
+        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+
+        title_p = csi_label_dict[a_i]
+        ax1.set_title(title_p)
+        ax.append(ax1)
+
+        if a_i == 4:
+            cbar_ax = fig.add_axes([0.92, 0.2, 0.01, 0.7])
+            cbar1 = fig.colorbar(plt1,  cax=cbar_ax, ticks=[-12, -8, -4, 0])
+            cbar1.ax.set_ylabel('normalized power [dB]')
+
+    for axi in ax:
+        axi.label_outer()
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_fft_doppler_activities_compact(doppler_spectrum_list, antenna, csi_label_dict, sliding_lenght, delta_v, name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(8, 5.5)
+    widths = [1, 1, 1, 1, 1, 1, 0.5]
+    heights = [1, 1]
+    gs = fig.add_gridspec(ncols=7, nrows=2, width_ratios=widths, height_ratios=heights)
+    step = 20
+    step_x = 5
+    ax = []
+    list_plts_pos_row = [0, 0, 1, 1, 1]
+    list_plts_pos_col_start = [1, 3, 0, 2, 4]
+    list_plts_pos_col_end = [3, 5, 2, 4, 6]
+    for a_i in range(5):
+        act = doppler_spectrum_list[a_i][antenna]
+        length_v = mt.floor(act.shape[1] / 2)
+        factor_v = step * (mt.floor(length_v / step))
+        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+        ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+
+        ax1 = fig.add_subplot(gs[list_plts_pos_row[a_i], list_plts_pos_col_start[a_i]:list_plts_pos_col_end[a_i]])
+        plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)  # , shading='gouraud')
+        plt1.set_edgecolor('face')
+        ax1.set_xlabel(r'time [s]')
+        ax1.set_yticks(ticks_y + 0.5)
+        if a_i == 0 or a_i == 2:
+            ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+            ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+        else:
+            ax1.set_yticklabels([])
+            ax1.set_ylabel('')
+        ax1.set_xticks(ticks_x)
+        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+
+        title_p = csi_label_dict[a_i]
+        ax1.set_title(title_p)
+        ax.append(ax1)
+
+        if a_i == 1 or a_i == 4:
+            cbar_ax = fig.add_axes([0.98, 0.2, 0.02, 0.7])
+            cbar1 = fig.colorbar(plt1,  cax=cbar_ax, ticks=[-12, -8, -4, 0])
+            cbar1.ax.set_ylabel('normalized power [dB]')
+
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_fft_doppler_activities_compact_2(doppler_spectrum_list, antenna, csi_label_dict, sliding_lenght,
+                                         delta_v, name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(6, 5.5)
+    widths = [1, 1, 0.5]
+    heights = [1, 1]
+    gs = fig.add_gridspec(ncols=3, nrows=2, width_ratios=widths, height_ratios=heights)
+    step = 20
+    step_x = 5
+    ax = []
+    list_plts_pos_row = [0, 0, 1, 1]
+    list_plts_pos_col = [0, 1, 0, 1]
+    for a_i in range(4):
+        act = doppler_spectrum_list[a_i][antenna]
+        length_v = mt.floor(act.shape[1] / 2)
+        factor_v = step * (mt.floor(length_v / step))
+        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+        ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+
+        ax1 = fig.add_subplot(gs[list_plts_pos_row[a_i], list_plts_pos_col[a_i]])
+        plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)  # , shading='gouraud')
+        plt1.set_edgecolor('face')
+        ax1.set_xlabel(r'time [s]')
+        ax1.set_yticks(ticks_y + 0.5)
+        if a_i == 0 or a_i == 2:
+            ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+            ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+        else:
+            ax1.set_yticklabels([])
+            ax1.set_ylabel('')
+        ax1.set_xticks(ticks_x)
+        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+
+        title_p = csi_label_dict[a_i]
+        ax1.set_title(title_p)
+        ax.append(ax1)
+
+        if a_i == 1:
+            cbar_ax = fig.add_axes([0.9, 0.2, 0.03, 0.7])
+            cbar1 = fig.colorbar(plt1,  cax=cbar_ax, ticks=[-12, -8, -4, 0])
+            cbar1.ax.set_ylabel('normalized power [dB]')
+
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+
+
+def plt_fft_doppler_activity_single(input_a, antenna, sliding_lenght, delta_v, name_plot):
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(3, 3)
+    step = 20
+    step_x = 5
+    act = input_a[antenna][:340, :]
+    length_v = mt.floor(act.shape[1] / 2)
+    factor_v = step * (mt.floor(length_v / step))
+    ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+    ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+
+    ax1 = fig.add_subplot()
+    plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)  # , shading='gouraud')
+    plt1.set_edgecolor('face')
+    ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+    ax1.set_xlabel(r'time [s]')
+    ax1.set_yticks(ticks_y + 0.5)
+    ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+    ax1.set_xticks(ticks_x)
+    ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 1))
+
+    plt.savefig(name_plot, bbox_inches='tight')
+    plt.close()
+```
+
+./dataset_utility.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import numpy as np
+import pickle
+import tensorflow as tf
+
+
+def convert_to_number(lab, csi_label_dict):
+    lab_num = np.argwhere(np.asarray(csi_label_dict) == lab)[0][0]
+    return lab_num
+
+
+def create_windows(csi_list, labels_list, sample_length, stride_length):
+    csi_matrix_stride = []
+    labels_stride = []
+    for i in range(len(labels_list)):
+        csi_i = csi_list[i]
+        label_i = labels_list[i]
+        len_csi = csi_i.shape[1]
+        for ii in range(0, len_csi - sample_length, stride_length):
+            csi_matrix_stride.append(csi_i[:, ii:ii+sample_length])
+            labels_stride.append(label_i)
+    return csi_matrix_stride, labels_stride
+
+
+def create_windows_antennas(csi_list, labels_list, sample_length, stride_length, remove_mean=False):
+    csi_matrix_stride = []
+    labels_stride = []
+    for i in range(len(labels_list)):
+        csi_i = csi_list[i]
+        label_i = labels_list[i]
+        len_csi = csi_i.shape[2]
+        for ii in range(0, len_csi - sample_length, stride_length):
+            csi_wind = csi_i[:, :, ii:ii + sample_length, ...]
+            if remove_mean:
+                csi_mean = np.mean(csi_wind, axis=2, keepdims=True)
+                csi_wind = csi_wind - csi_mean
+            csi_matrix_stride.append(csi_wind)
+            labels_stride.append(label_i)
+    return csi_matrix_stride, labels_stride
+
+
+def expand_antennas(file_names, labels, num_antennas):
+    file_names_expanded = [item for item in file_names for _ in range(num_antennas)]
+    labels_expanded = [item for item in labels for _ in range(num_antennas)]
+    stream_ant = np.tile(np.arange(num_antennas), len(labels))
+    return file_names_expanded, labels_expanded, stream_ant
+
+
+def load_data(csi_file_t):
+    csi_file = csi_file_t
+    if isinstance(csi_file_t, (bytes, bytearray)):
+        csi_file = csi_file.decode()
+    with open(csi_file, "rb") as fp:  # Unpickling
+        matrix_csi = pickle.load(fp)
+    matrix_csi = tf.transpose(matrix_csi, perm=[2, 1, 0])
+    matrix_csi = tf.cast(matrix_csi, tf.float32)
+    return matrix_csi
+
+
+def create_dataset(csi_matrix_files, labels_stride, input_shape, batch_size, shuffle, cache_file, prefetch=True,
+                   repeat=True):
+    dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels_stride))
+    py_funct = lambda csi_file, label: (tf.ensure_shape(tf.numpy_function(load_data, [csi_file], tf.float32),
+                                                        input_shape), label)
+    dataset_csi = dataset_csi.map(py_funct)
+    dataset_csi = dataset_csi.cache(cache_file)
+    if shuffle:
+        dataset_csi = dataset_csi.shuffle(len(labels_stride))
+    if repeat:
+        dataset_csi = dataset_csi.repeat()
+    dataset_csi = dataset_csi.batch(batch_size=batch_size)
+    if prefetch:
+        dataset_csi = dataset_csi.prefetch(buffer_size=1)
+    return dataset_csi
+
+
+def randomize_antennas(csi_data):
+    stream_order = np.random.permutation(csi_data.shape[2])
+    csi_data_randomized = csi_data[:, :, stream_order]
+    return csi_data_randomized
+
+
+def create_dataset_randomized_antennas(csi_matrix_files, labels_stride, input_shape, batch_size, shuffle, cache_file,
+                                       prefetch=True, repeat=True):
+    dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels_stride))
+    py_funct = lambda csi_file, label: (tf.ensure_shape(tf.numpy_function(load_data, [csi_file], tf.float32),
+                                                        input_shape), label)
+    dataset_csi = dataset_csi.map(py_funct)
+    dataset_csi = dataset_csi.cache(cache_file)
+
+    if shuffle:
+        dataset_csi = dataset_csi.shuffle(len(labels_stride))
+    if repeat:
+        dataset_csi = dataset_csi.repeat()
+
+    randomize_funct = lambda csi_data, label: (tf.ensure_shape(tf.numpy_function(randomize_antennas, [csi_data],
+                                                                                 tf.float32), input_shape), label)
+    dataset_csi = dataset_csi.map(randomize_funct)
+
+    dataset_csi = dataset_csi.batch(batch_size=batch_size)
+    if prefetch:
+        dataset_csi = dataset_csi.prefetch(buffer_size=1)
+    return dataset_csi
+
+
+def load_data_single(csi_file_t, stream_a):
+    csi_file = csi_file_t
+    if isinstance(csi_file_t, (bytes, bytearray)):
+        csi_file = csi_file.decode()
+    with open(csi_file, "rb") as fp:  # Unpickling
+        matrix_csi = pickle.load(fp)
+    matrix_csi_single = matrix_csi[stream_a, ...].T
+    if len(matrix_csi_single.shape) < 3:
+        matrix_csi_single = np.expand_dims(matrix_csi_single, axis=-1)
+    matrix_csi_single = tf.cast(matrix_csi_single, tf.float32)
+    return matrix_csi_single
+
+
+def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_shape, batch_size, shuffle, cache_file,
+                          prefetch=True, repeat=True):
+    stream_ant = list(stream_ant)
+    dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels_stride, stream_ant))
+    py_funct = lambda csi_file, label, stream: (tf.ensure_shape(tf.numpy_function(load_data_single,
+                                                                                  [csi_file, stream],
+                                                                                  tf.float32), input_shape), label)
+    dataset_csi = dataset_csi.map(py_funct)
+    dataset_csi = dataset_csi.cache(cache_file)
+    if shuffle:
+        dataset_csi = dataset_csi.shuffle(len(labels_stride))
+    if repeat:
+        dataset_csi = dataset_csi.repeat()
+    dataset_csi = dataset_csi.batch(batch_size=batch_size)
+    if prefetch:
+        dataset_csi = dataset_csi.prefetch(buffer_size=1)
+    return dataset_csi
+```
+
+./CSI_doppler_plots_antennas.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import argparse
+import numpy as np
+import pickle
+import math as mt
+from os import listdir
+from plots_utility import plt_doppler_antennas
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('dir', help='Directory of data')
+    parser.add_argument('sub_dir', help='Sub directory of data')
+    parser.add_argument('feature_length', help='Length along the feature dimension (height)', type=int)
+    parser.add_argument('sliding', help='Number of packet for sliding operations', type=int)
+    parser.add_argument('labels_activities', help='Files names')
+    parser.add_argument('end_plt', help='End index to plot', type=int)
+
+    args = parser.parse_args()
+
+    feature_length = args.feature_length
+    sliding = args.sliding
+    Tc = 6e-3
+    fc = 5e9
+    v_light = 3e8
+
+    exp_dir = args.dir + args.sub_dir + '/'
+    print(exp_dir)
+
+    labels_activities = args.labels_activities
+    csi_label_dict = []
+    for lab_act in labels_activities.split(','):
+        csi_label_dict.append(lab_act)
+    print(csi_label_dict)
+
+    all_files = listdir(exp_dir)
+    print(all_files)
+
+    for ilab in range(len(csi_label_dict)):
+        names = []
+        activity = csi_label_dict[ilab]
+
+        start_l = 4
+        end_l = start_l + len(csi_label_dict[ilab])
+        for i in range(len(all_files)):
+            print(all_files[i][start_l:end_l])
+            if all_files[i][start_l:end_l] == csi_label_dict[ilab]:
+                names.append(all_files[i][:-4])
+
+        names.sort()
+
+        stft_antennas = []
+        for name in names:
+            name_file = exp_dir + name + '.txt'
+            print(name_file)
+            with open(name_file, "rb") as fp:  # Pickling
+                stft_sum_1 = pickle.load(fp)
+
+            stft_sum_1[stft_sum_1 < mt.pow(10, -2.5)] = mt.pow(10, -2.5)
+
+            stft_sum_1_log = 10*np.log10(stft_sum_1)
+            middle = int(np.floor(stft_sum_1_log.shape[1] / 2))
+
+            stft_sum_1_log = stft_sum_1_log[:min(stft_sum_1_log.shape[0], args.end_plt), :]
+
+            stft_antennas.append(stft_sum_1_log)
+
+        name_p = './plots/csi_doppler_activity_' + args.sub_dir + '_' + activity + '.png'
+        delta_v = round(v_light / (Tc * fc * feature_length), 3)
+
+        plt_doppler_antennas(stft_antennas, sliding, delta_v, name_p)
+```
+
+./CSI_doppler_plot_activities.py:
+```
+
+import argparse
+import numpy as np
+import pickle
+from os import listdir
+from plots_utility import plt_fft_doppler_activities, plt_fft_doppler_activities_compact, \
+    plt_fft_doppler_activity_single, plt_fft_doppler_activities_compact_2
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('dir', help='Directory of data')
+    parser.add_argument('sub_dir', help='Sub directory of data')
+    parser.add_argument('feature_length', help='Length along the feature dimension (height)', type=int)
+    parser.add_argument('sliding', help='Number of packet for sliding operations', type=int)
+    parser.add_argument('labels_activities', help='Files names')
+    parser.add_argument('start_plt', help='Start index to plot', type=int)
+    parser.add_argument('end_plt', help='End index to plot', type=int)
+
+    args = parser.parse_args()
+
+    activities = np.asarray(['empty', 'sitting', 'walking', 'running', 'jumping'])
+
+    feature_length = args.feature_length
+    sliding = args.sliding
+    Tc = 6e-3
+    fc = 5e9
+    v_light = 3e8
+
+    exp_dir = args.dir + args.sub_dir + '/'
+
+    labels_activities = args.labels_activities
+    csi_label_dict = []
+    for lab_act in labels_activities.split(','):
+        csi_label_dict.append(lab_act)
+
+    traces_activities = []
+    for ilab in range(len(csi_label_dict)):
+        names = []
+        all_files = listdir(exp_dir)
+        activity = csi_label_dict[ilab]
+
+        start_l = 4
+        end_l = start_l + len(csi_label_dict[ilab])
+        for i in range(len(all_files)):
+            if all_files[i][start_l:end_l] == csi_label_dict[ilab] and all_files[i][-5] != 'p':
+                names.append(all_files[i][:-4])
+
+        names.sort()
+
+        stft_antennas = []
+        for name in names:
+            name_file = exp_dir + name + '.txt'
+
+            with open(name_file, "rb") as fp:  # Pickling
+                stft_sum_1 = pickle.load(fp)
+
+            stft_sum_1_log = 10*np.log10(stft_sum_1)
+
+            stft_sum_1_log = stft_sum_1_log[args.start_plt:min(stft_sum_1_log.shape[0], args.end_plt), :]
+
+            stft_antennas.append(stft_sum_1_log)
+
+        traces_activities.append(stft_antennas)
+
+    name_p = './plots/csi_doppler_activities_' + args.sub_dir + '.pdf'
+    delta_v = round(v_light / (Tc * fc * feature_length), 3)
+    antenna = 0
+    plt_fft_doppler_activities(traces_activities, antenna, activities, sliding, delta_v, name_p)
+
+    name_p = './plots/csi_doppler_activities_' + '_' + args.sub_dir + '_compact.pdf'
+    plt_fft_doppler_activities_compact(traces_activities, antenna, activities, sliding, delta_v, name_p)
+
+    traces_activities_reduced = traces_activities
+    del traces_activities_reduced[2]
+    name_p = './plots/csi_doppler_activities_' + '_' + args.sub_dir + '_compact_2.pdf'
+    plt_fft_doppler_activities_compact_2(traces_activities_reduced, antenna,
+                                         np.asarray(['empty', 'sitting', 'running', 'jumping']),
+                                         sliding, delta_v, name_p)
+
+    name_p = './plots/csi_doppler_single_act.pdf'
+    antenna = 1
+    plt_fft_doppler_activity_single(traces_activities[4], antenna, sliding, delta_v, name_p)
+```
+
+./CSI_phase_sanitization_H_estimation.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import argparse
+from optimization_utility import *
+from os import listdir
+import pickle
+from plots_utility import *
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('dir', help='Directory of data')
+    parser.add_argument('all_dir', help='All the files in the directory, default no', type=int, default=0)
+    parser.add_argument('name', help='Name of experiment file')
+    parser.add_argument('nss', help='Number of spatial streams', type=int)
+    parser.add_argument('ncore', help='Number of cores', type=int)
+    parser.add_argument('start_r', help='Start processing', type=int)
+    parser.add_argument('end_r', help='End processing', type=int)
+    args = parser.parse_args()
+
+    exp_save_dir = args.dir
+    names = []
+
+    if args.all_dir:
+        all_files = listdir(exp_save_dir)
+        mat_files = []
+        for i in range(len(all_files)):
+            if all_files[i].endswith('.mat'):
+                names.append(all_files[i][:-4])
+    else:
+        names.append(args.name)
+
+    for name in names:
+        name_file = './phase_processing/signal_' + name + '.txt'
+        with open(name_file, "rb") as fp:  # Pickling
+            signal_complete = pickle.load(fp)
+
+        delete_idxs = np.asarray([0, 1, 2, 3, 4, 5, 127, 128, 129, 251, 252, 253, 254, 255], dtype=int)
+        pilot_subcarriers = [25, 53, 89, 117, 139, 167, 203, 231]
+        subcarriers_space = 2
+        delta_t = 1E-7
+        delta_t_refined = 5E-9
+        range_refined_up = 2.5E-7
+        range_refined_down = 2E-7
+
+        start_r = args.start_r
+        if args.end_r != -1:
+            end_r = args.end_r
+        else:
+            end_r = signal_complete.shape[1]
+
+        F_frequency = 256
+        delta_f = 312.5E3
+        frequency_vector_complete = np.zeros(F_frequency, )
+        F_frequency_2 = F_frequency // 2
+        for row in range(F_frequency_2):
+            freq_n = delta_f * (row - F_frequency / 2)
+            frequency_vector_complete[row] = freq_n
+            freq_p = delta_f * row
+            frequency_vector_complete[row + F_frequency_2] = freq_p
+        frequency_vector = np.delete(frequency_vector_complete, delete_idxs)
+
+        T = 1/delta_f
+        t_min = -3E-7
+        t_max = 5E-7
+
+        T_matrix, time_matrix = build_T_matrix(frequency_vector, delta_t, t_min, t_max)
+        r_length = int((t_max - t_min) / delta_t_refined)
+
+        start_subcarrier = 0
+        end_subcarrier = frequency_vector.shape[0]
+        select_subcarriers = np.arange(start_subcarrier, end_subcarrier, subcarriers_space)
+
+        n_ss = args.nss
+        n_core = args.ncore
+        n_tot = n_ss * n_core
+
+        # Auxiliary data for first step
+        row_T = int(T_matrix.shape[0] / subcarriers_space)
+        col_T = T_matrix.shape[1]
+        m = 2 * row_T
+        n = 2 * col_T
+        In = scipy.sparse.eye(n)
+        Im = scipy.sparse.eye(m)
+        On = scipy.sparse.csc_matrix((n, n))
+        Onm = scipy.sparse.csc_matrix((n, m))
+        P = scipy.sparse.block_diag([On, Im, On], format='csc')
+        q = np.zeros(2 * n + m)
+        A2 = scipy.sparse.hstack([In, Onm, -In])
+        A3 = scipy.sparse.hstack([In, Onm, In])
+        ones_n_matr = np.ones(n)
+        zeros_n_matr = np.zeros(n)
+        zeros_nm_matr = np.zeros(n + m)
+
+        for stream in range(0, 4):
+            name_file = './phase_processing/r_vector' + name + '_stream_' + str(stream) + '.txt'
+            signal_considered = signal_complete[:, start_r:end_r, stream]
+            r_optim = np.zeros((r_length, end_r - start_r), dtype=complex)
+            Tr_matrix = np.zeros((frequency_vector_complete.shape[0], end_r - start_r), dtype=complex)
+
+            for time_step in range(end_r - start_r):
+                signal_time = signal_considered[:, time_step]
+                complex_opt_r = lasso_regression_osqp_fast(signal_time, T_matrix, select_subcarriers, row_T, col_T,
+                                                           Im, Onm, P, q, A2, A3, ones_n_matr, zeros_n_matr,
+                                                           zeros_nm_matr)
+
+                position_max_r = np.argmax(abs(complex_opt_r))
+                time_max_r = time_matrix[position_max_r]
+
+                T_matrix_refined, time_matrix_refined = build_T_matrix(frequency_vector, delta_t_refined,
+                                                                       max(time_max_r - range_refined_down, t_min),
+                                                                       min(time_max_r + range_refined_up, t_max))
+
+                # Auxiliary data for second step
+                col_T_refined = T_matrix_refined.shape[1]
+                n_refined = 2 * col_T_refined
+                In_refined = scipy.sparse.eye(n_refined)
+                On_refined = scipy.sparse.csc_matrix((n_refined, n_refined))
+                Onm_refined = scipy.sparse.csc_matrix((n_refined, m))
+                P_refined = scipy.sparse.block_diag([On_refined, Im, On_refined], format='csc')
+                q_refined = np.zeros(2 * n_refined + m)
+                A2_refined = scipy.sparse.hstack([In_refined, Onm_refined, -In_refined])
+                A3_refined = scipy.sparse.hstack([In_refined, Onm_refined, In_refined])
+                ones_n_matr_refined = np.ones(n_refined)
+                zeros_n_matr_refined = np.zeros(n_refined)
+                zeros_nm_matr_refined = np.zeros(n_refined + m)
+
+                complex_opt_r_refined = lasso_regression_osqp_fast(signal_time, T_matrix_refined, select_subcarriers,
+                                                                   row_T, col_T_refined, Im, Onm_refined, P_refined,
+                                                                   q_refined, A2_refined, A3_refined,
+                                                                   ones_n_matr_refined, zeros_n_matr_refined,
+                                                                   zeros_nm_matr_refined)
+
+                position_max_r_refined = np.argmax(abs(complex_opt_r_refined))
+
+                T_matrix_refined, time_matrix_refined = build_T_matrix(frequency_vector_complete, delta_t_refined,
+                                                                       max(time_max_r - range_refined_down, t_min),
+                                                                       min(time_max_r + range_refined_up, t_max))
+
+                Tr = np.multiply(T_matrix_refined, complex_opt_r_refined)
+
+                Tr_sum = np.sum(Tr, axis=1)
+
+                Trr = np.multiply(Tr, np.conj(Tr[:, position_max_r_refined:position_max_r_refined + 1]))
+                Trr_sum = np.sum(Trr, axis=1)
+
+                Tr_matrix[:, time_step] = Trr_sum
+                time_max_r = time_matrix_refined[position_max_r_refined]
+
+                start_r_opt = int((time_matrix_refined[0] - t_min)/delta_t_refined)
+                end_r_opt = start_r_opt + complex_opt_r_refined.shape[0]
+                r_optim[start_r_opt:end_r_opt, time_step] = complex_opt_r_refined
+
+            name_file = './phase_processing/r_vector_' + name + '_stream_' + str(stream) + '.txt'
+            with open(name_file, "wb") as fp:  # Pickling
+                pickle.dump(r_optim, fp)
+
+            name_file = './phase_processing/Tr_vector_' + name + '_stream_' + str(stream) + '.txt'
+            with open(name_file, "wb") as fp:  # Pickling
+                pickle.dump(Tr_matrix, fp)
+```
+
+./CSI_doppler_create_dataset_train.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import argparse
+import glob
+import os
+import numpy as np
+import pickle
+import math as mt
+import shutil
+from dataset_utility import create_windows_antennas, convert_to_number
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('dir', help='Directory of data')
+    parser.add_argument('subdirs', help='Sub-directories')
+    parser.add_argument('sample_lengths', help='Number of packets in a sample', type=int)
+    parser.add_argument('sliding', help='Number of packet for sliding operations', type=int)
+    parser.add_argument('windows_length', help='Number of samples per window', type=int)
+    parser.add_argument('stride_lengths', help='Number of samples to stride', type=int)
+    parser.add_argument('labels_activities', help='Labels of the activities to be considered')
+    parser.add_argument('n_tot', help='Number of streams * number of antennas', type=int)
+    args = parser.parse_args()
+
+    labels_activities = args.labels_activities
+    csi_label_dict = []
+    for lab_act in labels_activities.split(','):
+        csi_label_dict.append(lab_act)
+
+    activities = np.asarray(labels_activities)
+
+    n_tot = args.n_tot
+    num_packets = args.sample_lengths  # 51
+    middle = int(np.floor(num_packets / 2))
+    list_subdir = args.subdirs  # string
+
+    for subdir in list_subdir.split(','):
+        exp_dir = args.dir + subdir + '/'
+
+        path_train = exp_dir + 'train_antennas_' + str(activities)
+        path_val = exp_dir + 'val_antennas_' + str(activities)
+        path_test = exp_dir + 'test_antennas_' + str(activities)
+        paths = [path_train, path_val, path_test]
+        for pat in paths:
+            if os.path.exists(pat):
+                remove_files = glob.glob(pat + '/*')
+                for f in remove_files:
+                    os.remove(f)
+            else:
+                os.mkdir(pat)
+
+        path_complete = exp_dir + 'complete_antennas_' + str(activities)
+        if os.path.exists(path_complete):
+            shutil.rmtree(path_complete)
+
+        names = []
+        all_files = os.listdir(exp_dir)
+        for i in range(len(all_files)):
+            if all_files[i].startswith('S'):
+                names.append(all_files[i][:-4])
+        names.sort()
+
+        csi_matrices = []
+        labels = []
+        lengths = []
+        label = 'null'
+        prev_label = label
+        csi_matrix = []
+        processed = False
+        for i_name, name in enumerate(names):
+            if i_name % n_tot == 0 and i_name != 0 and processed:
+                ll = csi_matrix[0].shape[1]
+
+                for i_ant in range(1, n_tot):
+                    if ll != csi_matrix[i_ant].shape[1]:
+                        break
+                lengths.append(ll)
+                csi_matrices.append(np.asarray(csi_matrix))
+                labels.append(label)
+                csi_matrix = []
+
+            label = name[4]
+
+            if label not in csi_label_dict:
+                processed = False
+                continue
+            processed = True
+
+            print(name)
+
+            label = convert_to_number(label, csi_label_dict)
+            if i_name % n_tot == 0:
+                prev_label = label
+            elif label != prev_label:
+                print('error in ' + str(name))
+                break
+
+            name_file = exp_dir + name + '.txt'
+            with open(name_file, "rb") as fp:  # Unpickling
+                stft_sum_1 = pickle.load(fp)
+
+            stft_sum_1_mean = stft_sum_1 - np.mean(stft_sum_1, axis=0, keepdims=True)
+
+            csi_matrix.append(stft_sum_1_mean.T)
+
+        error = False
+        if processed:
+            # for the last block
+            if len(csi_matrix) < n_tot:
+                print('error in ' + str(name))
+            ll = csi_matrix[0].shape[1]
+
+            for i_ant in range(1, n_tot):
+                if ll != csi_matrix[i_ant].shape[1]:
+                    print('error in ' + str(name))
+                    error = True
+            if not error:
+                lengths.append(ll)
+                csi_matrices.append(np.asarray(csi_matrix))
+                labels.append(label)
+
+        if not error:
+            lengths = np.asarray(lengths)
+            length_min = np.min(lengths)
+
+            csi_train = []
+            csi_val = []
+            csi_test = []
+            length_train = []
+            length_val = []
+            length_test = []
+            for i in range(len(labels)):
+                ll = lengths[i]
+                train_len = int(np.floor(ll * 0.6))
+                length_train.append(train_len)
+                csi_train.append(csi_matrices[i][:, :, :train_len])
+
+                start_val = train_len + mt.ceil(num_packets/args.sliding)
+                val_len = int(np.floor(ll * 0.2))
+                length_val.append(val_len)
+                csi_val.append(csi_matrices[i][:, :, start_val:start_val + val_len])
+
+                start_test = start_val + val_len + mt.ceil(num_packets/args.sliding)
+                length_test.append(ll - val_len - train_len - 2*mt.ceil(num_packets/args.sliding))
+                csi_test.append(csi_matrices[i][:, :, start_test:])
+
+            window_length = args.windows_length  # number of windows considered
+            stride_length = args.stride_lengths
+
+            list_sets_name = ['train', 'val', 'test']
+            list_sets = [csi_train, csi_val, csi_test]
+            list_sets_lengths = [length_train, length_val, length_test]
+
+            for set_idx in range(3):
+                csi_matrices_set, labels_set = create_windows_antennas(list_sets[set_idx], labels, window_length,
+                                                                       stride_length, remove_mean=False)
+
+                num_windows = np.floor((np.asarray(list_sets_lengths[set_idx]) - window_length) / stride_length + 1)
+                if not len(csi_matrices_set) == np.sum(num_windows):
+                    print('ERROR - shapes mismatch')
+
+                names_set = []
+                suffix = '.txt'
+                for ii in range(len(csi_matrices_set)):
+                    name_file = exp_dir + list_sets_name[set_idx] + '_antennas_' + str(activities) + '/' + \
+                                str(ii) + suffix
+                    names_set.append(name_file)
+                    with open(name_file, "wb") as fp:  # Pickling
+                        pickle.dump(csi_matrices_set[ii], fp)
+                name_labels = exp_dir + '/labels_' + list_sets_name[set_idx] + '_antennas_' + str(activities) + suffix
+                with open(name_labels, "wb") as fp:  # Pickling
+                    pickle.dump(labels_set, fp)
+                name_f = exp_dir + '/files_' + list_sets_name[set_idx] + '_antennas_' + str(activities) + suffix
+                with open(name_f, "wb") as fp:  # Pickling
+                    pickle.dump(names_set, fp)
+                name_f = exp_dir + '/num_windows_' + list_sets_name[set_idx] + '_antennas_' + str(activities) + suffix
+                with open(name_f, "wb") as fp:  # Pickling
+                    pickle.dump(num_windows, fp)
+```
+
+./CSI_network.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import argparse
+import numpy as np
+import pickle
+from sklearn.metrics import confusion_matrix
+import os
+from dataset_utility import create_dataset_single, expand_antennas
+from network_utility import *
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('dir', help='Directory of data')
+    parser.add_argument('subdirs', help='Subdirs for training')
+    parser.add_argument('feature_length', help='Length along the feature dimension (height)', type=int)
+    parser.add_argument('sample_length', help='Length along the time dimension (width)', type=int)
+    parser.add_argument('channels', help='Number of channels', type=int)
+    parser.add_argument('batch_size', help='Number of samples in a batch', type=int)
+    parser.add_argument('num_tot', help='Number of antenna * number of spatial streams', type=int)
+    parser.add_argument('name_base', help='Name base for the files')
+    parser.add_argument('activities', help='Activities to be considered')
+    parser.add_argument('--bandwidth', help='Bandwidth in [MHz] to select the subcarriers, can be 20, 40, 80 '
+                                            '(default 80)', default=80, required=False, type=int)
+    parser.add_argument('--sub_band', help='Sub_band idx in [1, 2, 3, 4] for 20 MHz, [1, 2] for 40 MHz '
+                                           '(default 1)', default=1, required=False, type=int)
+    args = parser.parse_args()
+
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    print(gpus)
+
+    bandwidth = args.bandwidth
+    sub_band = args.sub_band
+
+    csi_act = args.activities
+    activities = []
+    for lab_act in csi_act.split(','):
+        activities.append(lab_act)
+    activities = np.asarray(activities)
+
+    name_base = args.name_base
+    if os.path.exists(name_base + '_' + str(csi_act) + '_cache_train.data-00000-of-00001'):
+        os.remove(name_base + '_' + str(csi_act) + '_cache_train.data-00000-of-00001')
+        os.remove(name_base + '_' + str(csi_act) + '_cache_train.index')
+    if os.path.exists(name_base + '_' + str(csi_act) + '_cache_val.data-00000-of-00001'):
+        os.remove(name_base + '_' + str(csi_act) + '_cache_val.data-00000-of-00001')
+        os.remove(name_base + '_' + str(csi_act) + '_cache_val.index')
+    if os.path.exists(name_base + '_' + str(csi_act) + '_cache_train_test.data-00000-of-00001'):
+        os.remove(name_base + '_' + str(csi_act) + '_cache_train_test.data-00000-of-00001')
+        os.remove(name_base + '_' + str(csi_act) + '_cache_train_test.index')
+    if os.path.exists(name_base + '_' + str(csi_act) + '_cache_test.data-00000-of-00001'):
+        os.remove(name_base + '_' + str(csi_act) + '_cache_test.data-00000-of-00001')
+        os.remove(name_base + '_' + str(csi_act) + '_cache_test.index')
+
+    subdirs_training = args.subdirs  # string
+    labels_train = []
+    all_files_train = []
+    labels_val = []
+    all_files_val = []
+    labels_test = []
+    all_files_test = []
+    sample_length = args.sample_length
+    feature_length = args.feature_length
+    channels = args.channels
+    num_antennas = args.num_tot
+    input_shape = (num_antennas, sample_length, feature_length, channels)
+    input_network = (sample_length, feature_length, channels)
+    batch_size = args.batch_size
+    output_shape = activities.shape[0]
+    labels_considered = np.arange(output_shape)
+    activities = activities[labels_considered]
+
+    suffix = '.txt'
+
+    for sdir in subdirs_training.split(','):
+        exp_save_dir = args.dir + sdir + '/'
+        dir_train = args.dir + sdir + '/train_antennas_' + str(csi_act) + '/'
+        name_labels = args.dir + sdir + '/labels_train_antennas_' + str(csi_act) + suffix
+        with open(name_labels, "rb") as fp:  # Unpickling
+            labels_train.extend(pickle.load(fp))
+        name_f = args.dir + sdir + '/files_train_antennas_' + str(csi_act) + suffix
+        with open(name_f, "rb") as fp:  # Unpickling
+            all_files_train.extend(pickle.load(fp))
+
+        dir_val = args.dir + sdir + '/val_antennas_' + str(csi_act) + '/'
+        name_labels = args.dir + sdir + '/labels_val_antennas_' + str(csi_act) + suffix
+        with open(name_labels, "rb") as fp:  # Unpickling
+            labels_val.extend(pickle.load(fp))
+        name_f = args.dir + sdir + '/files_val_antennas_' + str(csi_act) + suffix
+        with open(name_f, "rb") as fp:  # Unpickling
+            all_files_val.extend(pickle.load(fp))
+
+        dir_test = args.dir + sdir + '/test_antennas_' + str(csi_act) + '/'
+        name_labels = args.dir + sdir + '/labels_test_antennas_' + str(csi_act) + suffix
+        with open(name_labels, "rb") as fp:  # Unpickling
+            labels_test.extend(pickle.load(fp))
+        name_f = args.dir + sdir + '/files_test_antennas_' + str(csi_act) + suffix
+        with open(name_f, "rb") as fp:  # Unpickling
+            all_files_test.extend(pickle.load(fp))
+
+    file_train_selected = [all_files_train[idx] for idx in range(len(labels_train)) if labels_train[idx] in
+                           labels_considered]
+    labels_train_selected = [labels_train[idx] for idx in range(len(labels_train)) if labels_train[idx] in
+                             labels_considered]
+
+    file_train_selected_expanded, labels_train_selected_expanded, stream_ant_train = \
+        expand_antennas(file_train_selected, labels_train_selected, num_antennas)
+
+    name_cache = name_base + '_' + str(csi_act) + '_cache_train'
+    dataset_csi_train = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
+                                              stream_ant_train, input_network, batch_size,
+                                              shuffle=True, cache_file=name_cache)
+
+    file_val_selected = [all_files_val[idx] for idx in range(len(labels_val)) if labels_val[idx] in
+                         labels_considered]
+    labels_val_selected = [labels_val[idx] for idx in range(len(labels_val)) if labels_val[idx] in
+                           labels_considered]
+
+    file_val_selected_expanded, labels_val_selected_expanded, stream_ant_val = \
+        expand_antennas(file_val_selected, labels_val_selected, num_antennas)
+
+    name_cache_val = name_base + '_' + str(csi_act) + '_cache_val'
+    dataset_csi_val = create_dataset_single(file_val_selected_expanded, labels_val_selected_expanded,
+                                            stream_ant_val, input_network, batch_size,
+                                            shuffle=False, cache_file=name_cache_val)
+
+    file_test_selected = [all_files_test[idx] for idx in range(len(labels_test)) if labels_test[idx] in
+                          labels_considered]
+    labels_test_selected = [labels_test[idx] for idx in range(len(labels_test)) if labels_test[idx] in
+                            labels_considered]
+
+    file_test_selected_expanded, labels_test_selected_expanded, stream_ant_test = \
+        expand_antennas(file_test_selected, labels_test_selected, num_antennas)
+
+    name_cache_test = name_base + '_' + str(csi_act) + '_cache_test'
+    dataset_csi_test = create_dataset_single(file_test_selected_expanded, labels_test_selected_expanded,
+                                             stream_ant_test, input_network, batch_size,
+                                             shuffle=False, cache_file=name_cache_test)
+
+    csi_model = csi_network_inc_res(input_network, output_shape)
+    csi_model.summary()
+
+    optimiz = tf.keras.optimizers.Adam(learning_rate=0.0001)
+
+    loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits='True')
+    csi_model.compile(optimizer=optimiz, loss=loss, metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
+
+    num_samples_train = len(file_train_selected_expanded)
+    num_samples_val = len(file_val_selected_expanded)
+    num_samples_test = len(file_test_selected_expanded)
+    lab, count = np.unique(labels_train_selected_expanded, return_counts=True)
+    lab_val, count_val = np.unique(labels_val_selected_expanded, return_counts=True)
+    lab_test, count_test = np.unique(labels_test_selected_expanded, return_counts=True)
+    train_steps_per_epoch = int(np.ceil(num_samples_train/batch_size))
+    val_steps_per_epoch = int(np.ceil(num_samples_val/batch_size))
+    test_steps_per_epoch = int(np.ceil(num_samples_test/batch_size))
+
+    callback_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
+
+    name_model = name_base + '_' + str(csi_act) + '_network.h5'
+    callback_save = tf.keras.callbacks.ModelCheckpoint(name_model, save_freq='epoch', save_best_only=True,
+                                                       monitor='val_sparse_categorical_accuracy')
+
+    results = csi_model.fit(dataset_csi_train, epochs=25, steps_per_epoch=train_steps_per_epoch,
+                            validation_data=dataset_csi_val, validation_steps=val_steps_per_epoch,
+                            callbacks=[callback_save, callback_stop])
+
+    csi_model.save(name_model)
+
+    csi_model = tf.keras.models.load_model(name_model)
+
+    # train
+    train_labels_true = np.array(labels_train_selected_expanded)
+
+    name_cache_train_test = name_base + '_' + str(csi_act) + '_cache_train_test'
+    dataset_csi_train_test = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
+                                                   stream_ant_train, input_network, batch_size,
+                                                   shuffle=False, cache_file=name_cache_train_test, prefetch=False)
+    train_prediction_list = csi_model.predict(dataset_csi_train_test,
+                                              steps=train_steps_per_epoch)[:train_labels_true.shape[0]]
+
+    train_labels_pred = np.argmax(train_prediction_list, axis=1)
+
+    conf_matrix_train = confusion_matrix(train_labels_true, train_labels_pred)
+
+    # val
+    val_labels_true = np.array(labels_val_selected_expanded)
+    val_prediction_list = csi_model.predict(dataset_csi_val, steps=val_steps_per_epoch)[:val_labels_true.shape[0]]
+
+    val_labels_pred = np.argmax(val_prediction_list, axis=1)
+
+    conf_matrix_val = confusion_matrix(val_labels_true, val_labels_pred)
+
+    # test
+    test_labels_true = np.array(labels_test_selected_expanded)
+
+    test_prediction_list = csi_model.predict(dataset_csi_test, steps=test_steps_per_epoch)[
+                            :test_labels_true.shape[0]]
+
+    test_labels_pred = np.argmax(test_prediction_list, axis=1)
+
+    conf_matrix = confusion_matrix(test_labels_true, test_labels_pred)
+    precision, recall, fscore, _ = precision_recall_fscore_support(test_labels_true,
+                                                                   test_labels_pred,
+                                                                   labels=labels_considered)
+    accuracy = accuracy_score(test_labels_true, test_labels_pred)
+
+    # merge antennas test
+    labels_true_merge = np.array(labels_test_selected)
+    pred_max_merge = np.zeros_like(labels_test_selected)
+    for i_lab in range(len(labels_test_selected)):
+        pred_antennas = test_prediction_list[i_lab * num_antennas:(i_lab + 1) * num_antennas, :]
+        lab_merge_max = np.argmax(np.sum(pred_antennas, axis=0))
+
+        pred_max_antennas = test_labels_pred[i_lab * num_antennas:(i_lab + 1) * num_antennas]
+        lab_unique, count = np.unique(pred_max_antennas, return_counts=True)
+        lab_max_merge = -1
+        if lab_unique.shape[0] > 1:
+            count_argsort = np.flip(np.argsort(count))
+            count_sort = count[count_argsort]
+            lab_unique_sort = lab_unique[count_argsort]
+            if count_sort[0] == count_sort[1] or lab_unique.shape[0] > 2:  # ex aequo between two labels
+                lab_max_merge = lab_merge_max
+            else:
+                lab_max_merge = lab_unique_sort[0]
+        else:
+            lab_max_merge = lab_unique[0]
+        pred_max_merge[i_lab] = lab_max_merge
+
+    conf_matrix_max_merge = confusion_matrix(labels_true_merge, pred_max_merge, labels=labels_considered)
+    precision_max_merge, recall_max_merge, fscore_max_merge, _ = \
+        precision_recall_fscore_support(labels_true_merge, pred_max_merge, labels=labels_considered)
+    accuracy_max_merge = accuracy_score(labels_true_merge, pred_max_merge)
+
+    metrics_matrix_dict = {'conf_matrix': conf_matrix,
+                           'accuracy_single': accuracy,
+                           'precision_single': precision,
+                           'recall_single': recall,
+                           'fscore_single': fscore,
+                           'conf_matrix_max_merge': conf_matrix_max_merge,
+                           'accuracy_max_merge': accuracy_max_merge,
+                           'precision_max_merge': precision_max_merge,
+                           'recall_max_merge': recall_max_merge,
+                           'fscore_max_merge': fscore_max_merge}
+
+    name_file = './outputs/test_' + str(csi_act) + '_' + subdirs_training + '_band_' + str(bandwidth) + '_subband_' + \
+                str(sub_band) + suffix
+    with open(name_file, "wb") as fp:  # Pickling
+        pickle.dump(metrics_matrix_dict, fp)
+
+    # impact of the number of antennas
+    one_antenna = [[0], [1], [2], [3]]
+    two_antennas = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]]
+    three_antennas = [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]]
+    four_antennas = [[0, 1, 2, 3]]
+    seq_ant_list = [one_antenna, two_antennas, three_antennas, four_antennas]
+    average_accuracy_change_num_ant = np.zeros((num_antennas,))
+    average_fscore_change_num_ant = np.zeros((num_antennas,))
+    labels_true_merge = np.array(labels_test_selected)
+    for ant_n in range(num_antennas):
+        seq_ant = seq_ant_list[ant_n]
+        num_seq = len(seq_ant)
+        for seq_n in range(num_seq):
+            pred_max_merge = np.zeros((len(labels_test_selected),))
+            ants_selected = seq_ant[seq_n]
+            for i_lab in range(len(labels_test_selected)):
+                pred_antennas = test_prediction_list[i_lab * num_antennas:(i_lab + 1) * num_antennas, :]
+                pred_antennas = pred_antennas[ants_selected, :]
+
+                lab_merge_max = np.argmax(np.sum(pred_antennas, axis=0))
+
+                pred_max_antennas = test_labels_pred[i_lab * num_antennas:(i_lab + 1) * num_antennas]
+                pred_max_antennas = pred_max_antennas[ants_selected]
+                lab_unique, count = np.unique(pred_max_antennas, return_counts=True)
+                lab_max_merge = -1
+                if lab_unique.shape[0] > 1:
+                    count_argsort = np.flip(np.argsort(count))
+                    count_sort = count[count_argsort]
+                    lab_unique_sort = lab_unique[count_argsort]
+                    if count_sort[0] == count_sort[1] or lab_unique.shape[0] > ant_n - 1:  # ex aequo between two labels
+                        lab_max_merge = lab_merge_max
+                    else:
+                        lab_max_merge = lab_unique_sort[0]
+                else:
+                    lab_max_merge = lab_unique[0]
+                pred_max_merge[i_lab] = lab_max_merge
+
+            _, _, fscore_max_merge, _ = precision_recall_fscore_support(labels_true_merge, pred_max_merge,
+                                                                        labels=[0, 1, 2, 3, 4])
+            accuracy_max_merge = accuracy_score(labels_true_merge, pred_max_merge)
+
+            average_accuracy_change_num_ant[ant_n] += accuracy_max_merge
+            average_fscore_change_num_ant[ant_n] += np.mean(fscore_max_merge)
+
+        average_accuracy_change_num_ant[ant_n] = average_accuracy_change_num_ant[ant_n] / num_seq
+        average_fscore_change_num_ant[ant_n] = average_fscore_change_num_ant[ant_n] / num_seq
+
+    metrics_matrix_dict = {'average_accuracy_change_num_ant': average_accuracy_change_num_ant,
+                           'average_fscore_change_num_ant': average_fscore_change_num_ant}
+
+    name_file = './outputs/change_number_antennas_test_' + str(csi_act) + '_' + subdirs_training + '_band_' + \
+                str(bandwidth) + '_subband_' + str(sub_band) + '.txt'
+    with open(name_file, "wb") as fp:  # Pickling
+        pickle.dump(metrics_matrix_dict, fp)
+```
+
+./network_utility.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import tensorflow as tf
+
+
+def conv2d_bn(x_in, filters, kernel_size, strides=(1, 1), padding='same', activation='relu', bn=False, name=None):
+    x = tf.keras.layers.Conv2D(filters, kernel_size, strides=strides, padding=padding, name=name)(x_in)
+    if bn:
+        bn_name = None if name is None else name + '_bn'
+        x = tf.keras.layers.BatchNormalization(axis=3, name=bn_name)(x)
+    if activation is not None:
+        x = tf.keras.layers.Activation(activation)(x)
+    return x
+
+
+def reduction_a_block_small(x_in, base_name):
+    x1 = tf.keras.layers.MaxPool2D((2, 2), strides=(2, 2), padding='valid')(x_in)
+
+    x2 = conv2d_bn(x_in, 5, (2, 2), strides=(2, 2), padding='valid', name=base_name + 'conv2_1_res_a')
+
+    x3 = conv2d_bn(x_in, 3, (1, 1), name=base_name + 'conv3_1_res_a')
+    x3 = conv2d_bn(x3, 6, (2, 2), name=base_name + 'conv3_2_res_a')
+    x3 = conv2d_bn(x3, 9, (4, 4), strides=(2, 2), padding='same', name=base_name + 'conv3_3_res_a')
+
+    x4 = tf.keras.layers.Concatenate()([x1, x2, x3])
+    return x4
+
+
+def csi_network_inc_res(input_sh, output_sh):
+    x_input = tf.keras.Input(input_sh)
+
+    x2 = reduction_a_block_small(x_input, base_name='1st')
+
+    x3 = conv2d_bn(x2, 3, (1, 1), name='conv4')
+
+    x = tf.keras.layers.Flatten()(x3)
+    x = tf.keras.layers.Dropout(0.2)(x)
+    x = tf.keras.layers.Dense(output_sh, activation=None, name='dense2')(x)
+    model = tf.keras.Model(inputs=x_input, outputs=x, name='csi_model')
+    return model
+```
+
+./optimization_utility.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import numpy as np
+import cmath as cmt
+import osqp
+import scipy
+
+
+def convert_to_complex_osqp(real_im_n):
+    len_vect = real_im_n.shape[0] // 2
+    complex_n = real_im_n[:len_vect] + 1j * real_im_n[len_vect:]
+    return complex_n
+
+
+def build_T_matrix(frequency_vector, delta_t_, t_min_, t_max_):
+    F_frequency = frequency_vector.shape[0]
+    L_paths = int((t_max_ - t_min_) / delta_t_)
+    T_matrix = np.zeros((F_frequency, L_paths), dtype=complex)
+    time_matrix = np.zeros((L_paths,))
+    for col in range(L_paths):
+        time_col = t_min_ + delta_t_ * col
+        time_matrix[col] = time_col
+        for row in range(F_frequency):
+            freq_n = frequency_vector[row]
+            T_matrix[row, col] = cmt.exp(-1j * 2 * cmt.pi * freq_n * time_col)
+    return T_matrix, time_matrix
+
+
+def lasso_regression_osqp_fast(H_matrix_, T_matrix_, selected_subcarriers, row_T, col_T, Im, Onm, P, q, A2, A3,
+                               ones_n_matr, zeros_n_matr, zeros_nm_matr):
+    # time_start = time.time()
+    T_matrix_selected = T_matrix_[selected_subcarriers, :]
+    H_matrix_selected = H_matrix_[selected_subcarriers]
+
+    T_matrix_real = np.zeros((2*row_T, 2*col_T))
+    T_matrix_real[:row_T, :col_T] = np.real(T_matrix_selected)
+    T_matrix_real[row_T:, col_T:] = np.real(T_matrix_selected)
+    T_matrix_real[row_T:, :col_T] = np.imag(T_matrix_selected)
+    T_matrix_real[:row_T, col_T:] = - np.imag(T_matrix_selected)
+
+    H_matrix_real = np.zeros((2*row_T))
+    H_matrix_real[:row_T] = np.real(H_matrix_selected)
+    H_matrix_real[row_T:] = np.imag(H_matrix_selected)
+
+    n = col_T*2
+
+    # OSQP data
+    A = scipy.sparse.vstack([scipy.sparse.hstack([T_matrix_real, -Im, Onm.T]),
+                             A2,
+                             A3], format='csc')
+    l = np.hstack([H_matrix_real, - np.inf * ones_n_matr, zeros_n_matr])
+    u = np.hstack([H_matrix_real, zeros_n_matr, np.inf * ones_n_matr])
+
+    # Create an OSQP object
+    prob = osqp.OSQP()
+
+    # Setup workspace
+    prob.setup(P, q, A, l, u, warm_start=True, verbose=False)
+
+    # Update linear cost
+    lambd = 1E-1
+    q_new = np.hstack([zeros_nm_matr, lambd * ones_n_matr])
+    prob.update(q=q_new)
+
+    # Solve
+    res = prob.solve()
+
+    x_out = res.x
+    x_out_cut = x_out[:n]
+
+    r_opt = convert_to_complex_osqp(x_out_cut)
+    return r_opt
+```
+
+./CSI_network_test.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import argparse
+import numpy as np
+import pickle
+from sklearn.metrics import confusion_matrix
+import os
+from dataset_utility import create_dataset_single, expand_antennas
+from tensorflow.keras.models import load_model
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
+import tensorflow as tf
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('dir', help='Directory of data')
+    parser.add_argument('subdirs', help='Subdirs for testing')
+    parser.add_argument('feature_length', help='Length along the feature dimension (height)', type=int)
+    parser.add_argument('sample_length', help='Length along the time dimension (width)', type=int)
+    parser.add_argument('channels', help='Number of channels', type=int)
+    parser.add_argument('batch_size', help='Number of samples in a batch', type=int)
+    parser.add_argument('num_tot', help='Number of antenna * number of spatial streams', type=int)
+    parser.add_argument('name_base', help='Name base for the files')
+    parser.add_argument('activities', help='Activities to be considered')
+    parser.add_argument('--bandwidth', help='Bandwidth in [MHz] to select the subcarriers, can be 20, 40, 80 '
+                                            '(default 80)', default=80, required=False, type=int)
+    parser.add_argument('--sub_band', help='Sub_band idx in [1, 2, 3, 4] for 20 MHz, [1, 2] for 40 MHz '
+                                           '(default 1)', default=1, required=False, type=int)
+    args = parser.parse_args()
+
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    print(gpus)
+
+    bandwidth = args.bandwidth
+    sub_band = args.sub_band
+
+    csi_act = args.activities
+    activities = []
+    for lab_act in csi_act.split(','):
+        activities.append(lab_act)
+    activities = np.asarray(activities)
+
+    suffix = '.txt'
+
+    name_base = args.name_base
+    if os.path.exists(name_base + '_' + str(csi_act) + '_cache_complete.data-00000-of-00001'):
+        os.remove(name_base + '_' + str(csi_act) + '_cache_complete.data-00000-of-00001')
+        os.remove(name_base + '_' + str(csi_act) + '_cache_complete.index')
+
+    subdirs_complete = args.subdirs  # string
+    labels_complete = []
+    all_files_complete = []
+    sample_length = args.sample_length
+    feature_length = args.feature_length
+    channels = args.channels
+    num_antennas = args.num_tot
+    input_shape = (num_antennas, sample_length, feature_length, channels)
+    input_network = (sample_length, feature_length, channels)
+    batch_size = args.batch_size
+    output_shape = activities.shape[0]
+    labels_considered = np.arange(output_shape)
+    activities = activities[labels_considered]
+
+    for sdir in subdirs_complete.split(','):
+        exp_save_dir = args.dir + sdir + '/'
+        dir_complete = args.dir + sdir + '/complete_antennas_' + str(csi_act) + '/'
+        name_labels = args.dir + sdir + '/labels_complete_antennas_' + str(csi_act) + suffix
+        with open(name_labels, "rb") as fp:  # Unpickling
+            labels_complete.extend(pickle.load(fp))
+        name_f = args.dir + sdir + '/files_complete_antennas_' + str(csi_act) + suffix
+        with open(name_f, "rb") as fp:  # Unpickling
+            all_files_complete.extend(pickle.load(fp))
+
+    file_complete_selected = [all_files_complete[idx] for idx in range(len(labels_complete)) if labels_complete[idx] in
+                              labels_considered]
+    labels_complete_selected = [labels_complete[idx] for idx in range(len(labels_complete)) if labels_complete[idx] in
+                                labels_considered]
+
+    file_complete_selected_expanded, labels_complete_selected_expanded, stream_ant_complete = \
+        expand_antennas(file_complete_selected, labels_complete_selected, num_antennas)
+
+    dataset_csi_complete = create_dataset_single(file_complete_selected_expanded, labels_complete_selected_expanded,
+                                                 stream_ant_complete, input_network, batch_size, shuffle=False,
+                                                 cache_file=name_base + '_' + str(csi_act) + '_cache_complete')
+
+    name_model = name_base + '_' + str(csi_act) + '_network.h5'
+    csi_model = load_model(name_model)
+
+    num_samples_complete = len(file_complete_selected_expanded)
+    lab_complete, count_complete = np.unique(labels_complete_selected_expanded, return_counts=True)
+    complete_steps_per_epoch = int(np.ceil(num_samples_complete / batch_size))
+
+    # complete
+    complete_labels_true = np.array(labels_complete_selected_expanded)
+    complete_prediction_list = csi_model.predict(dataset_csi_complete,
+                                                 steps=complete_steps_per_epoch)[:complete_labels_true.shape[0]]
+
+    complete_labels_pred = np.argmax(complete_prediction_list, axis=1)
+
+    conf_matrix = confusion_matrix(complete_labels_true, complete_labels_pred, labels=labels_considered)
+    precision, recall, fscore, _ = precision_recall_fscore_support(complete_labels_true,
+                                                                   complete_labels_pred,
+                                                                   labels=labels_considered)
+    accuracy = accuracy_score(complete_labels_true, complete_labels_pred)
+
+    # merge antennas
+    labels_true_merge = np.array(labels_complete_selected)
+    pred_max_merge = np.zeros_like(labels_complete_selected)
+    for i_lab in range(len(labels_complete_selected)):
+        pred_antennas = complete_prediction_list[i_lab*num_antennas:(i_lab+1)*num_antennas, :]
+        sum_pred = np.sum(pred_antennas, axis=0)
+        lab_merge_max = np.argmax(sum_pred)
+
+        pred_max_antennas = complete_labels_pred[i_lab*num_antennas:(i_lab+1)*num_antennas]
+        lab_unique, count = np.unique(pred_max_antennas, return_counts=True)
+        lab_max_merge = -1
+        if lab_unique.shape[0] > 1:
+            count_argsort = np.flip(np.argsort(count))
+            count_sort = count[count_argsort]
+            lab_unique_sort = lab_unique[count_argsort]
+            if count_sort[0] == count_sort[1] or lab_unique.shape[0] > 2:  # ex aequo between two labels
+                lab_max_merge = lab_merge_max
+            else:
+                lab_max_merge = lab_unique_sort[0]
+        else:
+            lab_max_merge = lab_unique[0]
+        pred_max_merge[i_lab] = lab_max_merge
+
+    conf_matrix_max_merge = confusion_matrix(labels_true_merge, pred_max_merge, labels_considered)
+    precision_max_merge, recall_max_merge, fscore_max_merge, _ = \
+        precision_recall_fscore_support(labels_true_merge, pred_max_merge, labels=labels_considered)
+    accuracy_max_merge = accuracy_score(labels_true_merge, pred_max_merge)
+
+    metrics_matrix_dict = {'conf_matrix': conf_matrix,
+                           'accuracy_single': accuracy,
+                           'precision_single': precision,
+                           'recall_single': recall,
+                           'fscore_single': fscore,
+                           'conf_matrix_max_merge': conf_matrix_max_merge,
+                           'accuracy_max_merge': accuracy_max_merge,
+                           'precision_max_merge': precision_max_merge,
+                           'recall_max_merge': recall_max_merge,
+                           'fscore_max_merge': fscore_max_merge}
+
+    name_file = './outputs/complete_different_' + str(csi_act) + '_' + subdirs_complete + '_band_' + str(bandwidth) \
+                + '_subband_' + str(sub_band) + suffix
+    with open(name_file, "wb") as fp:  # Pickling
+        pickle.dump(metrics_matrix_dict, fp)
+    print('accuracy', accuracy_max_merge)
+    print('fscore', fscore_max_merge)
+    print(conf_matrix_max_merge)
+
+    # impact of the number of antennas
+    one_antenna = [[0], [1], [2], [3]]
+    two_antennas = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]]
+    three_antennas = [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]]
+    four_antennas = [[0, 1, 2, 3]]
+    seq_ant_list = [one_antenna, two_antennas, three_antennas, four_antennas]
+    average_accuracy_change_num_ant = np.zeros((num_antennas, ))
+    average_fscore_change_num_ant = np.zeros((num_antennas, ))
+    labels_true_merge = np.array(labels_complete_selected)
+    for ant_n in range(num_antennas):
+        seq_ant = seq_ant_list[ant_n]
+        num_seq = len(seq_ant)
+        for seq_n in range(num_seq):
+            pred_max_merge = np.zeros((len(labels_complete_selected), ))
+            ants_selected = seq_ant[seq_n]
+            for i_lab in range(len(labels_complete_selected)):
+                pred_antennas = complete_prediction_list[i_lab * num_antennas:(i_lab + 1) * num_antennas, :]
+                pred_antennas = pred_antennas[ants_selected, :]
+
+                lab_merge_max = np.argmax(np.sum(pred_antennas, axis=0))
+
+                pred_max_antennas = complete_labels_pred[i_lab * num_antennas:(i_lab + 1) * num_antennas]
+                pred_max_antennas = pred_max_antennas[ants_selected]
+                lab_unique, count = np.unique(pred_max_antennas, return_counts=True)
+                lab_max_merge = -1
+                if lab_unique.shape[0] > 1:
+                    count_argsort = np.flip(np.argsort(count))
+                    count_sort = count[count_argsort]
+                    lab_unique_sort = lab_unique[count_argsort]
+                    if count_sort[0] == count_sort[1] or lab_unique.shape[0] > ant_n - 1:  # ex aequo between two labels
+                        lab_max_merge = lab_merge_max
+                    else:
+                        lab_max_merge = lab_unique_sort[0]
+                else:
+                    lab_max_merge = lab_unique[0]
+                pred_max_merge[i_lab] = lab_max_merge
+
+            _, _, fscore_max_merge, _ = precision_recall_fscore_support(labels_true_merge, pred_max_merge,
+                                                                        labels=[0, 1, 2, 3, 4])
+            accuracy_max_merge = accuracy_score(labels_true_merge, pred_max_merge)
+
+            average_accuracy_change_num_ant[ant_n] += accuracy_max_merge
+            average_fscore_change_num_ant[ant_n] += np.mean(fscore_max_merge)
+
+        average_accuracy_change_num_ant[ant_n] = average_accuracy_change_num_ant[ant_n] / num_seq
+        average_fscore_change_num_ant[ant_n] = average_fscore_change_num_ant[ant_n] / num_seq
+
+    metrics_matrix_dict = {'average_accuracy_change_num_ant': average_accuracy_change_num_ant,
+                           'average_fscore_change_num_ant': average_fscore_change_num_ant}
+
+    name_file = './outputs/change_number_antennas_complete_different_' + str(csi_act) + '_' + subdirs_complete + \
+                '_band_' + str(bandwidth) + '_subband_' + str(sub_band) + '.txt'
+    with open(name_file, "wb") as fp:  # Pickling
+        pickle.dump(metrics_matrix_dict, fp)
+```
+
+./CSI_network_metrics_plot.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import argparse
+import numpy as np
+import pickle
+from plots_utility import plt_confusion_matrix
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('name_file', help='Name of the file')
+    parser.add_argument('activities', help='Activities to be considered')
+    args = parser.parse_args()
+
+    name_file = args.name_file  # string
+    csi_act = args.activities
+    activities = []
+    for lab_act in csi_act.split(','):
+        activities.append(lab_act)
+    activities = np.asarray(activities)
+
+    folder_name = './outputs/'
+
+    name_file = folder_name + name_file + '.txt'
+
+    with open(name_file, "rb") as fp:  # Pickling
+        conf_matrix_dict = pickle.load(fp)
+    conf_matrix = conf_matrix_dict['conf_matrix']
+    conf_matrix_max_merge = conf_matrix_dict['conf_matrix_max_merge']
+
+    name_plot = args.name_file
+    plt_confusion_matrix(activities.shape[0], conf_matrix, activities=activities, name=name_plot)
+
+    name_plot = args.name_file + '_max_merge'
+    plt_confusion_matrix(activities.shape[0], conf_matrix_max_merge, activities=activities, name=name_plot)
+```
+
+./CSI_network_metrics.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import argparse
+import numpy as np
+import pickle
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('name_file', help='Name of the file')
+    parser.add_argument('activities', help='Activities to be considered')
+    args = parser.parse_args()
+
+    name_file = args.name_file  # string
+    csi_act = args.activities
+    activities = []
+    for lab_act in csi_act.split(','):
+        activities.append(lab_act)
+    activities = np.asarray(activities)
+
+    folder_name = './outputs/'
+
+    name_file = folder_name + name_file + '.txt'
+
+    with open(name_file, "rb") as fp:  # Pickling
+        conf_matrix_dict = pickle.load(fp)
+
+    conf_matrix = conf_matrix_dict['conf_matrix']
+    confusion_matrix_normaliz_row = np.transpose(conf_matrix / np.sum(conf_matrix, axis=1).reshape(-1, 1))
+    accuracies = np.diag(confusion_matrix_normaliz_row)
+    accuracy = conf_matrix_dict['accuracy_single']
+    precision = conf_matrix_dict['precision_single']
+    recall = conf_matrix_dict['recall_single']
+    fscore = conf_matrix_dict['fscore_single']
+    average_prec = np.mean(precision)
+    average_rec = np.mean(recall)
+    average_f = np.mean(recall)
+    print('single antenna - average accuracy %f, average precision %f, average recall %f, average fscore %f'
+          % (accuracy, average_prec, average_rec, average_f))
+    print('fscores - empty %f, sitting %f, walking %f, running %f, jumping %f'
+          % (fscore[0], fscore[1], fscore[2], fscore[3], fscore[4]))
+    print('average fscore %f' % (np.mean(fscore)))
+    print('accuracies - empty %f, sitting %f, walking %f, running %f, jumping %f'
+          % (accuracies[0], accuracies[1], accuracies[2], accuracies[3], accuracies[4]))
+
+    conf_matrix_max_merge = conf_matrix_dict['conf_matrix_max_merge']
+    conf_matrix_max_merge_normaliz_row = np.transpose(conf_matrix_max_merge /
+                                                      np.sum(conf_matrix_max_merge, axis=1).reshape(-1, 1))
+    accuracies_max_merge = np.diag(conf_matrix_max_merge_normaliz_row)
+    accuracy_max_merge = conf_matrix_dict['accuracy_max_merge']
+    precision_max_merge = conf_matrix_dict['precision_max_merge']
+    recall_max_merge = conf_matrix_dict['recall_max_merge']
+    fscore_max_merge = conf_matrix_dict['fscore_max_merge']
+    average_max_merge_prec = np.mean(precision_max_merge)
+    average_max_merge_rec = np.mean(recall_max_merge)
+    average_max_merge_f = np.mean(fscore_max_merge)
+    print('\n-- FINAL DECISION --')
+    print('max-merge - average accuracy %f, average precision %f, average recall %f, average fscore %f'
+          % (accuracy_max_merge, average_max_merge_prec, average_max_merge_rec, average_max_merge_f))
+    print('fscores - empty %f, sitting %f, walking %f, running %f, jumping %f'
+          % (fscore_max_merge[0], fscore_max_merge[1], fscore_max_merge[2], fscore_max_merge[3], fscore_max_merge[4]))
+    print('accuracies - empty %f, sitting %f, walking %f, running %f, jumping %f'
+          % (accuracies_max_merge[0], accuracies_max_merge[1], accuracies_max_merge[2], accuracies_max_merge[3],
+             accuracies_max_merge[4]))
+
+    # performance assessment by changing the number of monitor antennas
+    name_file = folder_name + 'change_number_antennas_' + args.name_file + '.txt'
+    with open(name_file, "rb") as fp:  # Pickling
+        metrics_matrix_dict = pickle.load(fp)
+
+    average_accuracy_change_num_ant = metrics_matrix_dict['average_accuracy_change_num_ant']
+    average_fscore_change_num_ant = metrics_matrix_dict['average_fscore_change_num_ant']
+    print('\naccuracies - one antenna %f, two antennas %f, three antennas %f, four antennas %f'
+          % (average_accuracy_change_num_ant[0], average_accuracy_change_num_ant[1], average_accuracy_change_num_ant[2],
+             average_accuracy_change_num_ant[3]))
+    print('fscores - one antenna %f, two antennas %f, three antennas %f, four antennas %f'
+          % (average_fscore_change_num_ant[0], average_fscore_change_num_ant[1], average_fscore_change_num_ant[2],
+             average_fscore_change_num_ant[3]))
+```
+
+./CSI_doppler_computation.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import argparse
+import numpy as np
+import scipy.io as sio
+import math as mt
+from scipy.fftpack import fft
+from scipy.fftpack import fftshift
+from scipy.signal.windows import hann
+import pickle
+import os
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('dir', help='Directory of data')
+    parser.add_argument('subdirs', help='Sub-directories')
+    parser.add_argument('dir_doppler', help='Directory to save the Doppler data')
+    parser.add_argument('start', help='Start processing', type=int)
+    parser.add_argument('end', help='End processing (samples from the end)', type=int)
+    parser.add_argument('sample_length', help='Number of packet in a sample', type=int)
+    parser.add_argument('sliding', help='Number of packet for sliding operations', type=int)
+    parser.add_argument('noise_level', help='Level for the noise to be removed', type=float)
+    parser.add_argument('--bandwidth', help='Bandwidth in [MHz] to select the subcarriers, can be 20, 40, 80 '
+                                            '(default 80)', default=80, required=False, type=int)
+    parser.add_argument('--sub_band', help='Sub_band idx in [1, 2, 3, 4] for 20 MHz, [1, 2] for 40 MHz '
+                                           '(default 1)', default=1, required=False, type=int)
+    args = parser.parse_args()
+
+    num_symbols = args.sample_length  # 51
+    middle = int(mt.floor(num_symbols / 2))
+
+    Tc = 6e-3
+    fc = 5e9
+    v_light = 3e8
+    delta_v = round(v_light / (Tc * fc * num_symbols), 3)
+
+    sliding = args.sliding
+    noise_lev = args.noise_level
+    bandwidth = args.bandwidth
+    sub_band = args.sub_band
+
+    list_subdir = args.subdirs
+
+    for subdir in list_subdir.split(','):
+        path_doppler = args.dir_doppler + subdir
+        if not os.path.exists(path_doppler):
+            os.mkdir(path_doppler)
+
+        exp_dir = args.dir + subdir + '/'
+
+        names = []
+        all_files = os.listdir(exp_dir)
+        for i in range(len(all_files)):
+            names.append(all_files[i][:-4])
+
+        for name in names:
+            path_doppler_name = path_doppler + '/' + name + '.txt'
+            if os.path.exists(path_doppler_name):
+                continue
+
+            print(path_doppler_name)
+            name_file = exp_dir + name + '.mat'
+            mdic = sio.loadmat(name_file)
+            csi_matrix_processed = mdic['csi_matrix_processed']
+
+            csi_matrix_processed = csi_matrix_processed[args.start:-args.end, :, :]
+
+            csi_matrix_processed[:, :, 0] = csi_matrix_processed[:, :, 0] / np.mean(csi_matrix_processed[:, :, 0],
+                                                                                    axis=1,  keepdims=True)
+
+            csi_matrix_complete = csi_matrix_processed[:, :, 0]*np.exp(1j*csi_matrix_processed[:, :, 1])
+
+            if bandwidth == 40:
+                if sub_band == 1:
+                    selected_subcarriers_idxs = np.arange(0, 117, 1)
+                elif sub_band == 2:
+                    selected_subcarriers_idxs = np.arange(128, 245, 1)
+                num_selected_subcarriers = selected_subcarriers_idxs.shape[0]
+                csi_matrix_complete = csi_matrix_complete[:, selected_subcarriers_idxs]
+            elif bandwidth == 20:
+                if sub_band == 1:
+                    selected_subcarriers_idxs = np.arange(0, 57, 1)
+                elif sub_band == 2:
+                    selected_subcarriers_idxs = np.arange(60, 117, 1)
+                elif sub_band == 3:
+                    selected_subcarriers_idxs = np.arange(128, 185, 1)
+                elif sub_band == 4:
+                    selected_subcarriers_idxs = np.arange(188, 245, 1)
+                num_selected_subcarriers = selected_subcarriers_idxs.shape[0]
+                csi_matrix_complete = csi_matrix_complete[:, selected_subcarriers_idxs]
+
+            csi_d_profile_list = []
+            for i in range(0, csi_matrix_complete.shape[0]-num_symbols, sliding):
+                csi_matrix_cut = csi_matrix_complete[i:i+num_symbols, :]
+                csi_matrix_cut = np.nan_to_num(csi_matrix_cut)
+
+                hann_window = np.expand_dims(hann(num_symbols), axis=-1)
+                csi_matrix_wind = np.multiply(csi_matrix_cut, hann_window)
+                csi_doppler_prof = fft(csi_matrix_wind, n=100, axis=0)
+                csi_doppler_prof = fftshift(csi_doppler_prof, axes=0)
+
+                csi_d_map = np.abs(csi_doppler_prof * np.conj(csi_doppler_prof))
+                csi_d_map = np.sum(csi_d_map, axis=1)
+                csi_d_profile_list.append(csi_d_map)
+            csi_d_profile_array = np.asarray(csi_d_profile_list)
+            csi_d_profile_array_max = np.max(csi_d_profile_array, axis=1, keepdims=True)
+            csi_d_profile_array = csi_d_profile_array/csi_d_profile_array_max
+            csi_d_profile_array[csi_d_profile_array < mt.pow(10, noise_lev)] = mt.pow(10, noise_lev)
+
+            with open(path_doppler_name, "wb") as fp:  # Pickling
+                pickle.dump(csi_d_profile_array, fp)
+```
+
+./CSI_phase_sanitization_signal_preprocessing.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import argparse
+import numpy as np
+import scipy.io as sio
+from os import listdir
+import pickle
+from os import path
+
+
+def hampel_filter(input_matrix, window_size, n_sigmas=3):
+    n = input_matrix.shape[1]
+    new_matrix = np.zeros_like(input_matrix)
+    k = 1.4826  # scale factor for Gaussian distribution
+
+    for ti in range(n):
+        start_time = max(0, ti - window_size)
+        end_time = min(n, ti + window_size)
+        x0 = np.nanmedian(input_matrix[:, start_time:end_time], axis=1, keepdims=True)
+        s0 = k * np.nanmedian(np.abs(input_matrix[:, start_time:end_time] - x0), axis=1)
+        mask = (np.abs(input_matrix[:, ti] - x0[:, 0]) > n_sigmas * s0)
+        new_matrix[:, ti] = mask*x0[:, 0] + (1 - mask)*input_matrix[:, ti]
+
+    return new_matrix
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('dir', help='Directory of data')
+    parser.add_argument('all_dir', help='All the files in the directory, default no', type=int, default=0)
+    parser.add_argument('name', help='Name of experiment file')
+    parser.add_argument('nss', help='Number of spatial streams', type=int)
+    parser.add_argument('ncore', help='Number of cores', type=int)
+    parser.add_argument('start_idx', help='Idx where start processing for each stream', type=int)
+    args = parser.parse_args()
+
+    exp_dir = args.dir
+    names = []
+
+    if args.all_dir:
+        all_files = listdir(exp_dir)
+        mat_files = []
+        for i in range(len(all_files)):
+            if all_files[i].endswith('.mat'):
+                names.append(all_files[i][:-4])
+    else:
+        names.append(args.name)
+
+    for name in names:
+        name_file = './phase_processing/signal_' + name + '.txt'
+        if path.exists(name_file):
+            print('Already processed')
+            continue
+
+        csi_buff_file = exp_dir + name + ".mat"
+        csi_buff = sio.loadmat(csi_buff_file)
+        csi_buff = (csi_buff['csi_buff'])
+        csi_buff = np.fft.fftshift(csi_buff, axes=1)
+
+        delete_idxs = np.argwhere(np.sum(csi_buff, axis=1) == 0)[:, 0]
+        csi_buff = np.delete(csi_buff, delete_idxs, axis=0)
+
+        delete_idxs = np.asarray([0, 1, 2, 3, 4, 5, 127, 128, 129, 251, 252, 253, 254, 255], dtype=int)
+
+        n_ss = args.nss
+        n_core = args.ncore
+        n_tot = n_ss * n_core
+
+        start = args.start_idx  # 1000
+        end = int(np.floor(csi_buff.shape[0]/n_tot))
+        signal_complete = np.zeros((csi_buff.shape[1] - delete_idxs.shape[0], end-start, n_tot), dtype=complex)
+
+        for stream in range(0, n_tot):
+            signal_stream = csi_buff[stream:end*n_tot + 1:n_tot, :][start:end, :]
+            signal_stream[:, 64:] = - signal_stream[:, 64:]
+
+            signal_stream = np.delete(signal_stream, delete_idxs, axis=1)
+            mean_signal = np.mean(np.abs(signal_stream), axis=1, keepdims=True)
+            H_m = signal_stream/mean_signal
+
+            signal_complete[:, :, stream] = H_m.T
+
+        name_file = './phase_processing/signal_' + name + '.txt'
+        with open(name_file, "wb") as fp:  # Pickling
+            pickle.dump(signal_complete, fp)
+```
+
+./CSI_phase_sanitization_signal_reconstruction.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import argparse
+import numpy as np
+import scipy.io as sio
+from os import listdir, path
+import pickle
+import math as mt
+import os
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('dir', help='Directory of data')
+    parser.add_argument('dir_save', help='Directory to save processed data')
+    parser.add_argument('nss', help='Number of spatial streams', type=int)
+    parser.add_argument('ncore', help='Number of cores', type=int)
+    parser.add_argument('start_idx', help='Start index', type=int)
+    parser.add_argument('end_idx', help='End index from the end', type=int)
+    args = parser.parse_args()
+
+    exp_dir = args.dir
+    save_dir = args.dir_save
+    names = []
+
+    all_files = listdir(exp_dir)
+    for i in range(len(all_files)):
+        if all_files[i].startswith('Tr') and all_files[i].endswith('.txt'):
+            names.append(all_files[i][:-4])
+
+    for name in names:
+        name_f = name[10:] + '.mat'
+        stop = False
+        sub_dir_name = name_f[0:3]
+        subdir_path = save_dir + sub_dir_name
+
+        complete_path = subdir_path + '/' + name_f
+        print(complete_path)
+        if path.isfile(complete_path):
+            stop = True
+
+        if stop:
+            print('Already processed')
+            continue
+
+        if not os.path.exists(subdir_path):
+            os.mkdir(subdir_path)
+
+        name_file_save = subdir_path + '/' + name_f
+        name_file = exp_dir + name + '.txt'
+
+        with open(name_file, "rb") as fp:  # Unpickling
+            H_est = pickle.load(fp)
+
+        end_H = H_est.shape[1]
+        H_est = H_est[:, args.start_idx:end_H-args.end_idx]
+        F_frequency = 256
+        csi_matrix_processed = np.zeros((H_est.shape[1], F_frequency, 2))
+
+        # AMPLITUDE
+        csi_matrix_processed[:, 6:-5, 0] = np.abs(H_est[6:-5, :]).T
+
+        # PHASE
+        phase_before = np.unwrap(np.angle(H_est[6:-5, :]), axis=0)
+        phase_err_tot = np.diff(phase_before, axis=1)
+        ones_vector = np.ones((2, phase_before.shape[0]))
+        ones_vector[1, :] = np.arange(0, phase_before.shape[0])
+        for tidx in range(1, phase_before.shape[1]):
+            stop = False
+            idx_prec = -1
+            while not stop:
+                phase_err = phase_before[:, tidx] - phase_before[:, tidx - 1]
+                diff_phase_err = np.diff(phase_err)
+                idxs_invert_up = np.argwhere(diff_phase_err > 0.9 * mt.pi)[:, 0]
+                idxs_invert_down = np.argwhere(diff_phase_err < -0.9 * mt.pi)[:, 0]
+                if idxs_invert_up.shape[0] > 0:
+                    idx_act = idxs_invert_up[0]
+                    if idx_act == idx_prec:  # to avoid a continuous jump
+                        stop = True
+                    else:
+                        phase_before[idx_act + 1:, tidx] = phase_before[idx_act + 1:, tidx] \
+                                                           - 2 * mt.pi
+                        idx_prec = idx_act
+                elif idxs_invert_down.shape[0] > 0:
+                    idx_act = idxs_invert_down[0]
+                    if idx_act == idx_prec:
+                        stop = True
+                    else:
+                        phase_before[idx_act + 1:, tidx] = phase_before[idx_act + 1:, tidx] \
+                                                           + 2 * mt.pi
+                        idx_prec = idx_act
+                else:
+                    stop = True
+        for tidx in range(1, H_est.shape[1] - 1):
+            val_prec = phase_before[:, tidx - 1:tidx]
+            val_act = phase_before[:, tidx:tidx + 1]
+            error = val_act - val_prec
+            temp2 = np.linalg.lstsq(ones_vector.T, error)[0]
+            phase_before[:, tidx] = phase_before[:, tidx] - (np.dot(ones_vector.T, temp2)).T
+
+        csi_matrix_processed[:, 6:-5, 1] = phase_before.T
+
+        mdic = {"csi_matrix_processed": csi_matrix_processed[:, 6:-5, :]}
+        sio.savemat(name_file_save, mdic)
+```
+
+./CSI_doppler_create_dataset_test.py:
+```
+
+"""
+    Copyright (C) 2022 Francesca Meneghello
+    contact: meneghello@dei.unipd.it
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import argparse
+import glob
+import os
+import numpy as np
+import pickle
+from dataset_utility import create_windows_antennas, convert_to_number
+import shutil
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('dir', help='Directory of data')
+    parser.add_argument('subdirs', help='Sub-directories')
+    parser.add_argument('sample_lengths', help='Number of packets in a sample', type=int)
+    parser.add_argument('sliding', help='Number of packet for sliding operations', type=int)
+    parser.add_argument('windows_length', help='Number of samples per window', type=int)
+    parser.add_argument('stride_lengths', help='Number of samples to stride', type=int)
+    parser.add_argument('labels_activities', help='Labels of the activities to be considered')
+    parser.add_argument('n_tot', help='Number of streams * number of antennas', type=int)
+    args = parser.parse_args()
+
+    labels_activities = args.labels_activities
+    csi_label_dict = []
+    for lab_act in labels_activities.split(','):
+        csi_label_dict.append(lab_act)
+
+    activities = np.asarray(labels_activities)
+
+    n_tot = args.n_tot
+    num_packets = args.sample_lengths  # 51
+    middle = int(np.floor(num_packets / 2))
+    list_subdir = args.subdirs  # string
+
+    for subdir in list_subdir.split(','):
+        exp_dir = args.dir + subdir + '/'
+
+        path_train = exp_dir + 'train_antennas_' + str(activities)
+        path_val = exp_dir + 'val_antennas_' + str(activities)
+        path_test = exp_dir + 'test_antennas_' + str(activities)
+        paths = [path_train, path_val, path_test]
+        for pat in paths:
+            if os.path.exists(pat):
+                shutil.rmtree(pat)
+
+        path_complete = exp_dir + 'complete_antennas_' + str(activities)
+        if os.path.exists(path_complete):
+            remove_files = glob.glob(path_complete + '/*')
+            for f in remove_files:
+                os.remove(f)
+        else:
+            os.mkdir(path_complete)
+
+        names = []
+        all_files = os.listdir(exp_dir)
+        for i in range(len(all_files)):
+            if all_files[i].startswith('S'):
+                names.append(all_files[i][:-4])
+        names.sort()
+
+        csi_matrices = []
+        labels = []
+        lengths = []
+        label = 'null'
+        prev_label = label
+        csi_matrix = []
+        processed = False
+        for i_name, name in enumerate(names):
+            if i_name % n_tot == 0 and i_name != 0 and processed:
+                ll = csi_matrix[0].shape[1]
+
+                for i_ant in range(1, n_tot):
+                    if ll != csi_matrix[i_ant].shape[1]:
+                        break
+                lengths.append(ll)
+                csi_matrices.append(np.asarray(csi_matrix))
+                labels.append(label)
+                csi_matrix = []
+
+            label = name[4]
+
+            if label not in csi_label_dict:
+                processed = False
+                continue
+            processed = True
+
+            print(name)
+
+            label = convert_to_number(label, csi_label_dict)
+            if i_name % n_tot == 0:
+                prev_label = label
+            elif label != prev_label:
+                print('error in ' + str(name))
+                break
+
+            name_file = exp_dir + name + '.txt'
+            with open(name_file, "rb") as fp:  # Unpickling
+                stft_sum_1 = pickle.load(fp)
+
+            stft_sum_1_log = stft_sum_1 - np.mean(stft_sum_1, axis=0, keepdims=True)
+
+            csi_matrix.append(stft_sum_1_log.T)
+
+        error = False
+        if processed:
+            # for the last block
+            if len(csi_matrix) < n_tot:
+                print('error in ' + str(name))
+            ll = csi_matrix[0].shape[1]
+
+            for i_ant in range(1, n_tot):
+                if ll != csi_matrix[i_ant].shape[1]:
+                    print('error in ' + str(name))
+                    error = True
+            if not error:
+                lengths.append(ll)
+                csi_matrices.append(np.asarray(csi_matrix))
+                labels.append(label)
+
+        if not error:
+            csi_complete = []
+            for i in range(len(labels)):
+                csi_complete.append(csi_matrices[i])
+
+            window_length = args.windows_length  # number of windows considered
+            stride_length = args.stride_lengths
+
+            csi_matrices_wind, labels_wind = create_windows_antennas(csi_complete, labels, window_length, stride_length,
+                                                                     remove_mean=False)
+
+            num_windows = np.floor((np.asarray(lengths)-window_length)/stride_length+1)
+            if not len(csi_matrices_wind) == np.sum(num_windows):
+                print('ERROR - shapes mismatch')
+
+            names_complete = []
+            suffix = '.txt'
+            for ii in range(len(csi_matrices_wind)):
+                name_file = exp_dir + 'complete_antennas_' + str(activities) + '/' + str(ii) + suffix
+                names_complete.append(name_file)
+                with open(name_file, "wb") as fp:  # Pickling
+                    pickle.dump(csi_matrices_wind[ii], fp)
+            name_labels = exp_dir + '/labels_complete_antennas_' + str(activities) + suffix
+            with open(name_labels, "wb") as fp:  # Pickling
+                pickle.dump(labels_wind, fp)
+            name_f = exp_dir + '/files_complete_antennas_' + str(activities) + suffix
+            with open(name_f, "wb") as fp:  # Pickling
+                pickle.dump(names_complete, fp)
+            name_f = exp_dir + '/num_windows_complete_antennas_' + str(activities) + suffix
+            with open(name_f, "wb") as fp:  # Pickling
+                pickle.dump(num_windows, fp)
+```
+
