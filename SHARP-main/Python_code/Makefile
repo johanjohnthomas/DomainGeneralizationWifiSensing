@@ -20,9 +20,9 @@ PREPROCESS_CMD = for subdir in $(INPUT_DIR)AR-*; do \
     dir_name=$$(basename "$$subdir"); \
     python CSI_phase_sanitization_signal_preprocessing.py "$$subdir/" 1 - $(NSS) $(NCORE) $(START_IDX); \
 done
-H_ESTIMATION_CMD = for subdir in $(INPUT_DIR)AR-*; do \
-    dir_name=$$(basename "$$subdir"); \
-    python CSI_phase_sanitization_H_estimation.py "$$subdir/" 1 - $(NSS) $(NCORE) $(START_IDX) -1; \
+H_ESTIMATION_CMD = for signal_file in ./phase_processing/signal_*.txt; do \
+    name=$$(basename "$$signal_file" .txt | sed 's/signal_//'); \
+    python CSI_phase_sanitization_H_estimation.py ./phase_processing/ 0 $$name $(NSS) $(NCORE) $(START_IDX) -1; \
 done
 RECONSTRUCTION_CMD = for subdir in $(INPUT_DIR)AR-*; do \
     dir_name=$$(basename "$$subdir"); \
@@ -154,7 +154,7 @@ multiple_unseen_domains_equivalent_data_kitchen_laboratory_hidden_test2:
 	$(CREATE_DATASET_TEST_CMD)
 	$(TRAIN_CMD)
 	$(TEST_CMD)
-	
+
 # Default target (runs all variations)
 all: no_unseen_domains one_unseen_domain_bedroom_hidden one_unseen_domain_living_room_hidden \
 	 one_unseen_domain_kitchen_hidden one_unseen_domain_laboratory_hidden one_unseen_domain_office_hidden \
