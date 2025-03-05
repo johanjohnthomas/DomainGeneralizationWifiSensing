@@ -20,19 +20,23 @@ PREPROCESS_CMD = for subdir in $(INPUT_DIR)AR-*; do \
     dir_name=$$(basename "$$subdir"); \
     python CSI_phase_sanitization_signal_preprocessing.py "$$subdir/" 1 - $(NSS) $(NCORE) $(START_IDX); \
 done
-H_ESTIMATION_CMD = for signal_file in ./phase_processing/signal_*.txt; do \
-    name=$$(basename "$$signal_file" .txt | sed 's/signal_//'); \
-    python CSI_phase_sanitization_H_estimation.py ./phase_processing/ 0 $$name $(NSS) $(NCORE) $(START_IDX) -1; \
-done
+H_ESTIMATION_CMD = python parallel_h_estimation.py
 RECONSTRUCTION_CMD = for subdir in $(INPUT_DIR)AR-*; do \
     dir_name=$$(basename "$$subdir"); \
     python CSI_phase_sanitization_signal_reconstruction.py ./phase_processing/ $(OUTPUT_DIR) $(NSS) $(NCORE) $(START_IDX) -1; \
 done
-DOPPLER_CMD = python CSI_doppler_computation.py $(OUTPUT_DIR) AR-1a,AR-1b,AR-1c,AR-2a,AR-2b,AR-3a,AR-4a,AR-4b,AR-5a,AR-6a,AR-6b,AR-7a $(DOPPLER_DIR) 800 800 $(SAMPLE_LENGTH) $(SLIDING) $(NOISE_LEVEL)
+SUBDIRS_DOPPLER = AR-1a,AR-1b,AR-1c,AR-3a,AR-3b,AR-4a,AR-5a,AR-6a,AR-7a,AR-8a,AR-9a,AR-9b,AR-1d,AR-1e,AR-2a,AR-5b,AR-8b,AR-9c
+DOPPLER_CMD = python CSI_doppler_computation.py $(OUTPUT_DIR) "$(SUBDIRS_DOPPLER)" $(DOPPLER_DIR) 800 800 $(SAMPLE_LENGTH) $(SLIDING) $(NOISE_LEVEL)
 CREATE_DATASET_TRAIN_CMD = python CSI_doppler_create_dataset_train.py $(DOPPLER_DIR) $(SUBDIRS_TRAIN) $(SAMPLE_LENGTH) $(SLIDING) $(WINDOWS_LENGTH) $(STRIDE_LENGTHS) $(ACTIVITIES) 4
 CREATE_DATASET_TEST_CMD = python CSI_doppler_create_dataset_test.py $(DOPPLER_DIR) $(SUBDIRS_TEST) $(SAMPLE_LENGTH) $(SLIDING) $(WINDOWS_LENGTH) $(STRIDE_LENGTHS) $(ACTIVITIES) 4
 TRAIN_CMD = python CSI_network.py $(DOPPLER_DIR) $(SUBDIRS_TRAIN) $(FEATURE_LENGTH) $(WINDOWS_LENGTH) 1 $(BATCH_SIZE) $(NAME_BASE) $(ACTIVITIES)
 TEST_CMD = python CSI_network_test.py $(DOPPLER_DIR) $(SUBDIRS_TEST) $(FEATURE_LENGTH) $(WINDOWS_LENGTH) 1 $(BATCH_SIZE) $(NAME_BASE) $(ACTIVITIES)
+
+data_processing:
+	$(PREPROCESS_CMD)
+	$(H_ESTIMATION_CMD)
+	$(RECONSTRUCTION_CMD)
+	$(DOPPLER_CMD)
 
 # Define the targets for each variation
 no_unseen_domains:
