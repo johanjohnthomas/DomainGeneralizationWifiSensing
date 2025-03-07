@@ -44,7 +44,7 @@ def create_windows_antennas(csi_list, labels_list, sample_length, stride_length,
         csi_i = csi_list[i]
         label_i = labels_list[i]
         len_csi = csi_i.shape[2]
-        for ii in range(0, len_csi - sample_length, stride_length):
+        for ii in range(0, (len_csi - sample_length) + 1, stride_length):
             csi_wind = csi_i[:, :, ii:ii + sample_length, ...]
             if remove_mean:
                 csi_mean = np.mean(csi_wind, axis=2, keepdims=True)
