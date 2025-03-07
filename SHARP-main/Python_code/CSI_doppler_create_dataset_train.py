@@ -69,9 +69,9 @@ if __name__ == '__main__':
 
         names = []
         all_files = os.listdir(exp_dir)
-        for i in range(len(all_files)):
-            if all_files[i].startswith('S'):
-                names.append(all_files[i][:-4])
+        for filename in all_files:
+            if filename.endswith('.txt') and not filename.startswith('.'):
+                names.append(filename[:-4])
         names.sort()
 
         csi_matrices = []
@@ -93,7 +93,7 @@ if __name__ == '__main__':
                 labels.append(label)
                 csi_matrix = []
 
-            label = name[4]
+            label = subdir.split("_")[-1]
 
             if label not in csi_label_dict:
                 processed = False
@@ -110,9 +110,16 @@ if __name__ == '__main__':
                 break
 
             name_file = exp_dir + name + '.txt'
-            with open(name_file, "rb") as fp:  # Unpickling
+            with open(name_file, "rb") as fp:
                 stft_sum_1 = pickle.load(fp)
+                
+            # Convert lists to numpy arrays
+            if isinstance(stft_sum_1, list):
+                stft_sum_1 = np.array(stft_sum_1, dtype=np.float32)
 
+            # Validate array type
+            if stft_sum_1.dtype != np.float32 and stft_sum_1.dtype != np.float64:
+                stft_sum_1 = stft_sum_1.astype(np.float32)
             stft_sum_1_mean = stft_sum_1 - np.mean(stft_sum_1, axis=0, keepdims=True)
 
             csi_matrix.append(stft_sum_1_mean.T)

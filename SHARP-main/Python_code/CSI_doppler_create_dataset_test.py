@@ -92,7 +92,7 @@ if __name__ == '__main__':
                 labels.append(label)
                 csi_matrix = []
 
-            label = name[4]
+            label = subdir.split("_")[-1]
 
             if label not in csi_label_dict:
                 processed = False

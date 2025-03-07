@@ -172,7 +172,7 @@ if __name__ == '__main__':
 
     callback_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
 
-    name_model = name_base + '_' + str(csi_act) + '_network.h5'
+    name_model = name_base + '_' + str(csi_act) + '_network.keras'
     callback_save = tf.keras.callbacks.ModelCheckpoint(name_model, save_freq='epoch', save_best_only=True,
                                                        monitor='val_sparse_categorical_accuracy')
 
