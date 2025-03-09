@@ -22,6 +22,22 @@ import os
 from dataset_utility import create_dataset_single, expand_antennas
 from network_utility import *
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
+import glob
+import shutil
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TF logging
+os.environ['TF_DETERMINISTIC_OPS'] = '1'  # For reproducibility
+os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'  # Better GPU mem management
+
+# Now import TensorFlow
+import tensorflow as tf
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+    except RuntimeError as e:
+        print(e)
+
 
 
 if __name__ == '__main__':
@@ -40,7 +56,7 @@ if __name__ == '__main__':
     parser.add_argument('--sub_band', help='Sub_band idx in [1, 2, 3, 4] for 20 MHz, [1, 2] for 40 MHz '
                                            '(default 1)', default=1, required=False, type=int)
     args = parser.parse_args()
-
+    
     gpus = tf.config.experimental.list_physical_devices('GPU')
     print(gpus)
 
@@ -52,20 +68,29 @@ if __name__ == '__main__':
     for lab_act in csi_act.split(','):
         activities.append(lab_act)
     activities = np.asarray(activities)
-
+    
     name_base = args.name_base
-    if os.path.exists(name_base + '_' + str(csi_act) + '_cache_train.data-00000-of-00001'):
-        os.remove(name_base + '_' + str(csi_act) + '_cache_train.data-00000-of-00001')
-        os.remove(name_base + '_' + str(csi_act) + '_cache_train.index')
-    if os.path.exists(name_base + '_' + str(csi_act) + '_cache_val.data-00000-of-00001'):
-        os.remove(name_base + '_' + str(csi_act) + '_cache_val.data-00000-of-00001')
-        os.remove(name_base + '_' + str(csi_act) + '_cache_val.index')
-    if os.path.exists(name_base + '_' + str(csi_act) + '_cache_train_test.data-00000-of-00001'):
-        os.remove(name_base + '_' + str(csi_act) + '_cache_train_test.data-00000-of-00001')
-        os.remove(name_base + '_' + str(csi_act) + '_cache_train_test.index')
-    if os.path.exists(name_base + '_' + str(csi_act) + '_cache_test.data-00000-of-00001'):
-        os.remove(name_base + '_' + str(csi_act) + '_cache_test.data-00000-of-00001')
-        os.remove(name_base + '_' + str(csi_act) + '_cache_test.index')
+    cache_prefix = f"{name_base}_{csi_act.replace(',','_')}"
+    print(f"Cleaning up previous cache files: {cache_prefix}*")
+    # Delete cache files
+    for f in glob.glob(f"{cache_prefix}_cache*"):
+        try:
+            if os.path.isfile(f):
+                os.remove(f)
+            elif os.path.isdir(f):
+                shutil.rmtree(f)
+        except Exception as e:
+            print(f"Could not delete {f}: {e}")
+
+    # Delete lockfiles
+    for lockfile in glob.glob("*.lockfile"):
+        try:
+            os.remove(lockfile)
+        except Exception as e:
+            print(f"Could not delete lockfile {lockfile}: {e}")
+
+    # Configure TensorFlow caching
+    #tf.data.experimental.enable_optimizations(False)
 
     subdirs_training = args.subdirs  # string
     labels_train = []
@@ -125,7 +150,10 @@ if __name__ == '__main__':
     dataset_csi_train = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
                                               stream_ant_train, input_network, batch_size,
                                               shuffle=True, cache_file=name_cache)
-
+    options = tf.data.Options()
+    options.experimental_optimization.map_parallelization = True
+    options.experimental_threading.max_intra_op_parallelism = 1
+    dataset_csi_train = dataset_csi_train.with_options(options)
     file_val_selected = [all_files_val[idx] for idx in range(len(labels_val)) if labels_val[idx] in
                          labels_considered]
     labels_val_selected = [labels_val[idx] for idx in range(len(labels_val)) if labels_val[idx] in

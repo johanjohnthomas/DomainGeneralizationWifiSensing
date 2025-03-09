@@ -17,8 +17,10 @@
 import numpy as np
 import pickle
 import tensorflow as tf
+import os
+import shutil
 
-
+tf.random.set_seed(42)
 def convert_to_number(lab, csi_label_dict):
     lab_num = np.argwhere(np.asarray(csi_label_dict) == lab)[0][0]
     return lab_num
@@ -130,21 +132,44 @@ def load_data_single(csi_file_t, stream_a):
     matrix_csi_single = tf.cast(matrix_csi_single, tf.float32)
     return matrix_csi_single
 
-
 def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_shape, batch_size, shuffle, cache_file,
                           prefetch=True, repeat=True):
     stream_ant = list(stream_ant)
     dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels_stride, stream_ant))
-    py_funct = lambda csi_file, label, stream: (tf.ensure_shape(tf.numpy_function(load_data_single,
-                                                                                  [csi_file, stream],
-                                                                                  tf.float32), input_shape), label)
-    dataset_csi = dataset_csi.map(py_funct)
-    dataset_csi = dataset_csi.cache(cache_file)
-    if shuffle:
-        dataset_csi = dataset_csi.shuffle(len(labels_stride))
-    if repeat:
-        dataset_csi = dataset_csi.repeat()
-    dataset_csi = dataset_csi.batch(batch_size=batch_size)
-    if prefetch:
-        dataset_csi = dataset_csi.prefetch(buffer_size=1)
+    
+    with tf.device('/cpu:0'):
+        # Clean existing cache first
+        if cache_file and os.path.exists(cache_file):
+            try:
+                if os.path.isfile(cache_file):
+                    os.remove(cache_file)
+                elif os.path.isdir(cache_file):
+                    shutil.rmtree(cache_file)
+            except Exception as e:
+                print(f"Error clearing previous cache: {e}")
+
+        # New pipeline order
+        dataset_csi = dataset_csi.map(
+            lambda csi_file, label, stream: (tf.numpy_function(
+                load_data_single, [csi_file, stream], tf.float32
+            ), label),
+            num_parallel_calls=tf.data.AUTOTUNE
+        )
+        
+        # Cache early in pipeline
+        if cache_file:
+            dataset_csi = dataset_csi.cache(cache_file)
+        else:
+            dataset_csi = dataset_csi.cache()
+            
+        if shuffle:
+            buffer_size = min(1000, len(labels_stride))
+            dataset_csi = dataset_csi.shuffle(
+                buffer_size=buffer_size,
+                reshuffle_each_iteration=True
+            )
+        
+        dataset_csi = dataset_csi.batch(batch_size)
+        dataset_csi = dataset_csi.prefetch(tf.data.AUTOTUNE)
+        
     return dataset_csi
