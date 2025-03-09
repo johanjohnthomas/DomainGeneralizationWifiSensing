@@ -67,6 +67,8 @@ kitchen = $(AR6a)
 laboratory = $(AR7a)
 office = $(AR8a),$(AR8b)
 semi_anechoic_chamber = $(AR9a),$(AR9b),$(AR9c)
+clean:
+	python clean_dataset_train.py
 data_processing:
 	$(PREPROCESS_CMD)
 	$(H_ESTIMATION_CMD)
