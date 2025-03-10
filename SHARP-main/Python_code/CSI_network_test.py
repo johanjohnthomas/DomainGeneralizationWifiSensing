@@ -23,7 +23,7 @@ from dataset_utility import create_dataset_single, expand_antennas
 from tensorflow.keras.models import load_model
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 import tensorflow as tf
-
+import hashlib
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
@@ -156,8 +156,10 @@ if __name__ == '__main__':
                            'recall_max_merge': recall_max_merge,
                            'fscore_max_merge': fscore_max_merge}
 
-    name_file = './outputs/complete_different_' + str(csi_act) + '_' + subdirs_complete + '_band_' + str(bandwidth) \
-                + '_subband_' + str(sub_band) + suffix
+    unique_id = hashlib.md5(f"{csi_act}_{subdirs_complete}".encode()).hexdigest()[:8]
+    name_file = f'./outputs/complete_different__{unique_id}_b{bandwidth}_sb{sub_band}.txt'
+    # name_file = './outputs/complete_different_' + str(csi_act) + '_' + subdirs_complete + '_band_' + str(bandwidth) \
+    #             + '_subband_' + str(sub_band) + suffix
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)
     print('accuracy', accuracy_max_merge)
@@ -213,8 +215,10 @@ if __name__ == '__main__':
 
     metrics_matrix_dict = {'average_accuracy_change_num_ant': average_accuracy_change_num_ant,
                            'average_fscore_change_num_ant': average_fscore_change_num_ant}
+    unique_id = hashlib.md5(f"{csi_act}_{subdirs_complete}".encode()).hexdigest()[:8]
+    name_file = f'./outputs/change_number_antennas_complete_different_{unique_id}_b{bandwidth}_sb{sub_band}.txt'
 
-    name_file = './outputs/change_number_antennas_complete_different_' + str(csi_act) + '_' + subdirs_complete + \
-                '_band_' + str(bandwidth) + '_subband_' + str(sub_band) + '.txt'
+    # name_file = './outputs/change_number_antennas_complete_different_' + str(csi_act) + '_' + subdirs_complete + \
+    #             '_band_' + str(bandwidth) + '_subband_' + str(sub_band) + '.txt'
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)

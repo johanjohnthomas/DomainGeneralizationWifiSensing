@@ -68,9 +68,9 @@ if __name__ == '__main__':
 
         names = []
         all_files = os.listdir(exp_dir)
-        for i in range(len(all_files)):
-            if all_files[i].startswith('S'):
-                names.append(all_files[i][:-4])
+        for filename in all_files:
+            if filename.endswith('.txt') and not filename.startswith('.'):
+                names.append(filename[:-4])
         names.sort()
 
         csi_matrices = []

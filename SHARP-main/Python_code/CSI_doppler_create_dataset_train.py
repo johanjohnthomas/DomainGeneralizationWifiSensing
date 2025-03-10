@@ -1,4 +1,3 @@
-
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -61,7 +60,7 @@ if __name__ == '__main__':
                 for f in remove_files:
                     os.remove(f)
             else:
-                os.mkdir(pat)
+                os.makedirs(pat, exist_ok=True)
 
         path_complete = exp_dir + 'complete_antennas_' + str(activities)
         if os.path.exists(path_complete):

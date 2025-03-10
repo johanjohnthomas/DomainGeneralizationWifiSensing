@@ -133,12 +133,11 @@ def load_data_single(csi_file_t, stream_a):
     return matrix_csi_single
 
 def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_shape, batch_size, shuffle, cache_file,
-                          prefetch=True, repeat=True):
-    stream_ant = list(stream_ant)
+                          prefetch=True, repeat=False):
     dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels_stride, stream_ant))
     
     with tf.device('/cpu:0'):
-        # Clean existing cache first
+        # Clear existing cache if present
         if cache_file and os.path.exists(cache_file):
             try:
                 if os.path.isfile(cache_file):
@@ -146,30 +145,42 @@ def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_sha
                 elif os.path.isdir(cache_file):
                     shutil.rmtree(cache_file)
             except Exception as e:
-                print(f"Error clearing previous cache: {e}")
+                print(f"Error clearing cache: {e}")
 
-        # New pipeline order
+        # New optimized pipeline order
         dataset_csi = dataset_csi.map(
-            lambda csi_file, label, stream: (tf.numpy_function(
-                load_data_single, [csi_file, stream], tf.float32
-            ), label),
-            num_parallel_calls=tf.data.AUTOTUNE
-        )
-        
-        # Cache early in pipeline
-        if cache_file:
-            dataset_csi = dataset_csi.cache(cache_file)
-        else:
-            dataset_csi = dataset_csi.cache()
-            
+        lambda csi_file, label, stream: (
+            tf.numpy_function(load_data_single, [csi_file, stream], tf.float32),
+            label
+        ),
+        num_parallel_calls=tf.data.AUTOTUNE
+    )
+        dataset_csi = dataset_csi.cache(cache_file)
+        # Shuffle before caching with full dataset buffer if possible
         if shuffle:
-            buffer_size = min(1000, len(labels_stride))
             dataset_csi = dataset_csi.shuffle(
-                buffer_size=buffer_size,
-                reshuffle_each_iteration=True
-            )
-        
+            buffer_size=len(labels_stride),
+            reshuffle_each_iteration=False
+        )
+
+
+        # Cache after shuffle
         dataset_csi = dataset_csi.batch(batch_size)
-        dataset_csi = dataset_csi.prefetch(tf.data.AUTOTUNE)
-        
+
+        # Batch before repeat for better memory utilization
+        dataset_csi = dataset_csi.batch(batch_size)
+
+        # Repeat after caching and batching
+        # if repeat:
+        #     dataset_csi = dataset_csi.repeat()
+
+        # Final prefetch optimization
+        dataset_csi = dataset_csi.prefetch(buffer_size=tf.data.AUTOTUNE)
+
+        # Apply deterministic optimizations
+        options = tf.data.Options()
+        options.experimental_deterministic = False
+        options.experimental_optimization.map_parallelization = True
+        dataset_csi = dataset_csi.with_options(options)
+
     return dataset_csi

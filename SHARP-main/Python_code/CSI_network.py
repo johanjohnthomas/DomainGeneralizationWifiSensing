@@ -23,11 +23,13 @@ from dataset_utility import create_dataset_single, expand_antennas
 from network_utility import *
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 import glob
+import gc
 import shutil
+import hashlib
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TF logging
 os.environ['TF_DETERMINISTIC_OPS'] = '1'  # For reproducibility
 os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'  # Better GPU mem management
-
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0' 
 # Now import TensorFlow
 import tensorflow as tf
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -245,7 +247,7 @@ if __name__ == '__main__':
     conf_matrix = confusion_matrix(test_labels_true, test_labels_pred)
     precision, recall, fscore, _ = precision_recall_fscore_support(test_labels_true,
                                                                    test_labels_pred,
-                                                                   labels=labels_considered)
+                                                                   labels=labels_considered, zero_division=0)
     accuracy = accuracy_score(test_labels_true, test_labels_pred)
 
     # merge antennas test
@@ -272,7 +274,7 @@ if __name__ == '__main__':
 
     conf_matrix_max_merge = confusion_matrix(labels_true_merge, pred_max_merge, labels=labels_considered)
     precision_max_merge, recall_max_merge, fscore_max_merge, _ = \
-        precision_recall_fscore_support(labels_true_merge, pred_max_merge, labels=labels_considered)
+        precision_recall_fscore_support(labels_true_merge, pred_max_merge, labels=labels_considered,  zero_division=0)
     accuracy_max_merge = accuracy_score(labels_true_merge, pred_max_merge)
 
     metrics_matrix_dict = {'conf_matrix': conf_matrix,
@@ -285,9 +287,11 @@ if __name__ == '__main__':
                            'precision_max_merge': precision_max_merge,
                            'recall_max_merge': recall_max_merge,
                            'fscore_max_merge': fscore_max_merge}
+    unique_id = hashlib.md5(f"{csi_act}_{subdirs_training}".encode()).hexdigest()[:8]
+    name_file = f'./outputs/test_{unique_id}_b{bandwidth}_sb{sub_band}.txt'
 
-    name_file = './outputs/test_' + str(csi_act) + '_' + subdirs_training + '_band_' + str(bandwidth) + '_subband_' + \
-                str(sub_band) + suffix
+    # name_file = './outputs/test_' + str(csi_act) + '_' + subdirs_training + '_band_' + str(bandwidth) + '_subband_' + \
+    #             str(sub_band) + suffix
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)
 
@@ -329,7 +333,7 @@ if __name__ == '__main__':
                 pred_max_merge[i_lab] = lab_max_merge
 
             _, _, fscore_max_merge, _ = precision_recall_fscore_support(labels_true_merge, pred_max_merge,
-                                                                        labels=[0, 1, 2, 3, 4])
+                                                                        labels=[0, 1, 2, 3, 4], zero_division=0)
             accuracy_max_merge = accuracy_score(labels_true_merge, pred_max_merge)
 
             average_accuracy_change_num_ant[ant_n] += accuracy_max_merge
@@ -340,8 +344,12 @@ if __name__ == '__main__':
 
     metrics_matrix_dict = {'average_accuracy_change_num_ant': average_accuracy_change_num_ant,
                            'average_fscore_change_num_ant': average_fscore_change_num_ant}
-
-    name_file = './outputs/change_number_antennas_test_' + str(csi_act) + '_' + subdirs_training + '_band_' + \
-                str(bandwidth) + '_subband_' + str(sub_band) + '.txt'
+    unique_id = hashlib.md5(f"{csi_act}_{subdirs_training}".encode()).hexdigest()[:8]
+    name_file = f'./outputs/change_number_antennas_test_{unique_id}_b{bandwidth}_sb{sub_band}.txt'
+    # name_file = './outputs/change_number_antennas_test_' + str(csi_act) + '_' + subdirs_training + '_band_' + \
+    #       
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)
+    tf.keras.backend.clear_session()
+    gc.collect()
+    
