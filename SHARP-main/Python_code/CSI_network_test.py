@@ -1,4 +1,3 @@
-
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -24,6 +23,7 @@ from tensorflow.keras.models import load_model
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 import tensorflow as tf
 import hashlib
+import matplotlib.pyplot as plt
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
@@ -97,7 +97,7 @@ if __name__ == '__main__':
                                                  stream_ant_complete, input_network, batch_size, shuffle=False,
                                                  cache_file=name_base + '_' + str(csi_act) + '_cache_complete')
 
-    name_model = name_base + '_' + str(csi_act) + '_network.h5'
+    name_model = name_base + '_' + str(csi_act) + '_network.keras'
     csi_model = load_model(name_model)
 
     num_samples_complete = len(file_complete_selected_expanded)

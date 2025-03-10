@@ -1,4 +1,3 @@
-
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -69,7 +68,7 @@ if __name__ == '__main__':
         names = []
         all_files = os.listdir(exp_dir)
         for filename in all_files:
-            if filename.endswith('.txt') and not filename.startswith('.'):
+            if filename.endswith('.txt') and not filename.startswith('.') and '_stream_' in filename:
                 names.append(filename[:-4])
         names.sort()
 

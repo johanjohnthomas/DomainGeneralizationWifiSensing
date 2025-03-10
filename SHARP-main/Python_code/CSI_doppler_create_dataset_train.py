@@ -69,7 +69,7 @@ if __name__ == '__main__':
         names = []
         all_files = os.listdir(exp_dir)
         for filename in all_files:
-            if filename.endswith('.txt') and not filename.startswith('.'):
+            if filename.endswith('.txt') and not filename.startswith('.') and '_stream_' in filename:
                 names.append(filename[:-4])
         names.sort()
 
@@ -141,6 +141,9 @@ if __name__ == '__main__':
 
         if not error:
             lengths = np.asarray(lengths)
+            if len(lengths) == 0:
+                print("Error: No valid data was processed. The lengths array is empty.")
+                continue  # Skip to the next subdir
             length_min = np.min(lengths)
 
             csi_train = []

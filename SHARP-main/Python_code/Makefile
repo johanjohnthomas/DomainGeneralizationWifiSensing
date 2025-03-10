@@ -79,8 +79,8 @@ run_nn:
 	$(TEST_CMD)
 # Define the targets for each variation
 no_unseen_domains:
-	$(eval SUBDIRS_TRAIN = AR1a_S,AR1b_E,AR1c_C,AR3a_R,AR4a_R,AR5a_J,AR6a_W,AR7a_J,AR8a_E,AR9a_J,AR9b_W)
-	$(eval SUBDIRS_TEST = AR1d_S,AR1e_E,AR2a_J,AR5b_R,AR8b_W,AR9c_J)
+	$(eval SUBDIRS_TRAIN = AR1a_S,AR1b_E,AR1c_C,AR3a_R,AR4a_R,AR5a_C,AR6a_E,AR7a_J1,AR8a_E1,AR9a_J1,AR9b_J1)
+	$(eval SUBDIRS_TEST = AR1d_S,AR1e_E,AR2a_J1,AR5b_R,AR8b_E1,AR9c_J1)
 	$(CREATE_DATASET_TRAIN_CMD)
 	$(CREATE_DATASET_TEST_CMD)
 	$(TRAIN_CMD)
