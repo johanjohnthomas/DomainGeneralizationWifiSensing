@@ -1,4 +1,3 @@
-
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -124,16 +123,56 @@ def load_data_single(csi_file_t, stream_a):
     csi_file = csi_file_t
     if isinstance(csi_file_t, (bytes, bytearray)):
         csi_file = csi_file.decode()
-    with open(csi_file, "rb") as fp:  # Unpickling
-        matrix_csi = pickle.load(fp)
-    matrix_csi_single = matrix_csi[stream_a, ...].T
-    if len(matrix_csi_single.shape) < 3:
-        matrix_csi_single = np.expand_dims(matrix_csi_single, axis=-1)
-    matrix_csi_single = tf.cast(matrix_csi_single, tf.float32)
-    return matrix_csi_single
+    
+    print(f"Loading data from file: {csi_file}")
+    if not os.path.exists(csi_file):
+        raise FileNotFoundError(f"Data file not found: {csi_file}")
+        
+    try:
+        with open(csi_file, "rb") as fp:  # Unpickling
+            matrix_csi = pickle.load(fp)
+        
+        # Check the raw loaded data
+        print(f"Raw data type: {type(matrix_csi)}")
+        if isinstance(matrix_csi, np.ndarray):
+            print(f"Raw data shape: {matrix_csi.shape}")
+            print(f"Raw data min/max: {np.min(matrix_csi)}/{np.max(matrix_csi)}")
+            print(f"Is data all zeros? {np.all(matrix_csi == 0)}")
+        else:
+            print(f"Raw data is not numpy array: {type(matrix_csi)}")
+        
+        # Check the indexed data
+        print(f"Stream/antenna index: {stream_a}")
+        matrix_csi_single = matrix_csi[stream_a, ...].T
+        
+        print(f"Indexed data shape: {matrix_csi_single.shape}")
+        print(f"Indexed data min/max: {np.min(matrix_csi_single)}/{np.max(matrix_csi_single)}")
+        print(f"Is indexed data all zeros? {np.all(matrix_csi_single == 0)}")
+        
+        if len(matrix_csi_single.shape) < 3:
+            matrix_csi_single = np.expand_dims(matrix_csi_single, axis=-1)
+        
+        # Verify final data
+        print(f"Final data shape: {matrix_csi_single.shape}")
+        print(f"Final data min/max: {np.min(matrix_csi_single)}/{np.max(matrix_csi_single)}")
+        
+        # Raise an error if all zeros
+        if np.all(matrix_csi_single == 0):
+            raise ValueError("Data contains all zeros after processing - check your data source")
+            
+        matrix_csi_single = tf.cast(matrix_csi_single, tf.float32)
+        return matrix_csi_single
+    except Exception as e:
+        print(f"Error during data loading/processing: {e}")
+        raise
 
 def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_shape, batch_size, shuffle, cache_file,
                           prefetch=True, repeat=False):
+    if len(csi_matrix_files) == 0:
+        print("Error: Empty dataset - no files to process!")
+        raise ValueError("Cannot create dataset with empty file list - please check your data paths and make sure files exist")
+        
+    print(f"Creating dataset with {len(csi_matrix_files)} samples")
     dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels_stride, stream_ant))
     
     with tf.device('/cpu:0'):
@@ -147,40 +186,59 @@ def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_sha
             except Exception as e:
                 print(f"Error clearing cache: {e}")
 
-        # New optimized pipeline order
+        # Define the map function with proper error handling
+        def safe_load_data(csi_file, label, stream):
+            try:
+                # Print more information about the tensors
+                file_path = csi_file.numpy().decode() if hasattr(csi_file, 'numpy') else str(csi_file)
+                stream_value = stream.numpy() if hasattr(stream, 'numpy') else stream
+                label_value = label.numpy() if hasattr(label, 'numpy') else label
+                
+                print(f"Processing file: {file_path}")
+                print(f"Stream/antenna index: {stream_value}, Label: {label_value}")
+                
+                # Call the data loading function with explicit decoding of string tensor
+                data = tf.numpy_function(
+                    func=load_data_single,
+                    inp=[csi_file, stream],
+                    Tout=tf.float32
+                )
+                
+                # Verify the returned data
+                print(f"Returned data shape: {data.shape}")
+                
+                # Check for all zeros as a heuristic for dummy data
+                if tf.reduce_all(tf.equal(data, 0)):
+                    print("WARNING: Data contains all zeros!")
+                    raise ValueError("Loaded data contains all zeros - potential dummy data detected")
+                    
+                return data, tf.squeeze(label)
+            except Exception as e:
+                print(f"Error in safe_load_data: {e}")
+                raise
+
+        # Apply mapping
         dataset_csi = dataset_csi.map(
-            lambda csi_file, label, stream: (
-                tf.numpy_function(load_data_single, [csi_file, stream], tf.float32),
-                tf.squeeze(label)  # Ensure labels are scalars
-            ),
-        num_parallel_calls=tf.data.AUTOTUNE
-    )
-        dataset_csi = dataset_csi.cache(cache_file)
-        # Shuffle before caching with full dataset buffer if possible
-        if shuffle:
-            dataset_csi = dataset_csi.shuffle(
-            buffer_size=len(labels_stride),
-            reshuffle_each_iteration=False
+            safe_load_data,
+            num_parallel_calls=tf.data.AUTOTUNE
         )
-
-
-        # Cache after shuffle
+        
+        # Cache after mapping
+        dataset_csi = dataset_csi.cache(cache_file)
+        
+        # Shuffle if needed
+        if shuffle:
+            dataset_csi = dataset_csi.shuffle(buffer_size=max(100, len(csi_matrix_files)))
+        
+        # Batch the data
         dataset_csi = dataset_csi.batch(batch_size)
-
-        # Batch before repeat for better memory utilization
-        dataset_csi = dataset_csi.batch(batch_size)
-
-        # Repeat after caching and batching
-        # if repeat:
-        #     dataset_csi = dataset_csi.repeat()
-
-        # Final prefetch optimization
-        dataset_csi = dataset_csi.prefetch(buffer_size=tf.data.AUTOTUNE)
-
-        # Apply deterministic optimizations
-        options = tf.data.Options()
-        options.experimental_deterministic = False
-        options.experimental_optimization.map_parallelization = True
-        dataset_csi = dataset_csi.with_options(options)
-
+        
+        # Repeat if needed
+        if repeat:
+            dataset_csi = dataset_csi.repeat()
+            
+        # Prefetch for performance
+        if prefetch:
+            dataset_csi = dataset_csi.prefetch(buffer_size=tf.data.AUTOTUNE)
+    
     return dataset_csi

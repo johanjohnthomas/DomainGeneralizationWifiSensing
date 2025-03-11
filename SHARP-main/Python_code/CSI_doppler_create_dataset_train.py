@@ -192,9 +192,8 @@ if __name__ == '__main__':
                         pickle.dump(csi_matrices_set[ii], fp)
                 name_labels = exp_dir + '/labels_' + list_sets_name[set_idx] + '_antennas_' + str(activities) + suffix
                 with open(name_labels, "wb") as fp:
-                    # Convert numpy ints to Python ints before saving
-                    labels_set = [int(label) for label in labels]
-                    pickle.dump(labels_set, fp)
+                    # Use labels_set which contains the correct labels for each window
+                    pickle.dump([int(label) for label in labels_set], fp)
                 name_f = exp_dir + '/files_' + list_sets_name[set_idx] + '_antennas_' + str(activities) + suffix
                 with open(name_f, "wb") as fp:  # Pickling
                     pickle.dump(names_set, fp)

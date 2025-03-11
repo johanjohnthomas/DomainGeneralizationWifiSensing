@@ -1,4 +1,3 @@
-
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -26,6 +25,7 @@ import glob
 import gc
 import shutil
 import hashlib
+import sys
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TF logging
 os.environ['TF_DETERMINISTIC_OPS'] = '1'  # For reproducibility
 os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'  # Better GPU mem management
@@ -40,7 +40,52 @@ if gpus:
     except RuntimeError as e:
         print(e)
 
+def compute_class_weights(labels, num_classes):
+    """Compute class weights for imbalanced dataset."""
+    total_samples = len(labels)
+    unique_labels, counts = np.unique(labels, return_counts=True)
+    weights = {}
+    for idx in range(num_classes):
+        if idx in unique_labels:
+            weights[idx] = total_samples / (num_classes * counts[np.where(unique_labels == idx)[0][0]])
+        else:
+            weights[idx] = 1.0
+    return weights
 
+def create_model(input_shape=(340, 100, 1), num_classes=6):
+    """Create the CSI network model."""
+    input_network = tf.keras.layers.Input(shape=input_shape)
+    
+    # First branch - 3x3 convolutions
+    conv3_1 = tf.keras.layers.Conv2D(3, (3, 3), padding='same', name='1stconv3_1_res_a')(input_network)
+    conv3_1 = tf.keras.layers.Activation('relu', name='activation_1')(conv3_1)
+    conv3_2 = tf.keras.layers.Conv2D(6, (3, 3), padding='same', name='1stconv3_2_res_a')(conv3_1)
+    conv3_2 = tf.keras.layers.Activation('relu', name='activation_2')(conv3_2)
+    conv3_3 = tf.keras.layers.Conv2D(9, (3, 3), strides=(2, 2), padding='same', name='1stconv3_3_res_a')(conv3_2)
+    conv3_3 = tf.keras.layers.Activation('relu', name='activation_3')(conv3_3)
+    
+    # Second branch - 2x2 convolutions
+    conv2_1 = tf.keras.layers.Conv2D(5, (2, 2), strides=(2, 2), padding='same', name='1stconv2_1_res_a')(input_network)
+    conv2_1 = tf.keras.layers.Activation('relu', name='activation')(conv2_1)
+    
+    # Third branch - max pooling
+    pool1 = tf.keras.layers.MaxPooling2D((2, 2), name='max_pooling2d')(input_network)
+    
+    # Concatenate all branches
+    concat = tf.keras.layers.Concatenate(name='concatenate')([pool1, conv2_1, conv3_3])
+    
+    # Additional convolution
+    conv4 = tf.keras.layers.Conv2D(3, (1, 1), name='conv4')(concat)
+    conv4 = tf.keras.layers.Activation('relu', name='activation_4')(conv4)
+    
+    # Flatten and dense layers
+    flat = tf.keras.layers.Flatten(name='flatten')(conv4)
+    drop = tf.keras.layers.Dropout(0.5, name='dropout')(flat)
+    dense2 = tf.keras.layers.Dense(num_classes, name='dense2')(drop)
+    
+    # Create model
+    model = tf.keras.Model(inputs=input_network, outputs=dense2, name='csi_model')
+    return model
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
@@ -119,26 +164,38 @@ if __name__ == '__main__':
         dir_train = args.dir + sdir + '/train_antennas_' + str(csi_act) + '/'
         name_labels = args.dir + sdir + '/labels_train_antennas_' + str(csi_act) + suffix
         with open(name_labels, "rb") as fp:  # Unpickling
-            labels_train.extend(pickle.load(fp))
+            domain_labels = pickle.load(fp)
         name_f = args.dir + sdir + '/files_train_antennas_' + str(csi_act) + suffix
         with open(name_f, "rb") as fp:  # Unpickling
-            all_files_train.extend(pickle.load(fp))
+            domain_files = pickle.load(fp)
+            # Replicate the label for each file in this domain
+            domain_labels_expanded = [domain_labels[0] for _ in range(len(domain_files))]
+            labels_train.extend(domain_labels_expanded)
+            all_files_train.extend(domain_files)
 
         dir_val = args.dir + sdir + '/val_antennas_' + str(csi_act) + '/'
         name_labels = args.dir + sdir + '/labels_val_antennas_' + str(csi_act) + suffix
         with open(name_labels, "rb") as fp:  # Unpickling
-            labels_val.extend(pickle.load(fp))
+            domain_labels = pickle.load(fp)
         name_f = args.dir + sdir + '/files_val_antennas_' + str(csi_act) + suffix
         with open(name_f, "rb") as fp:  # Unpickling
-            all_files_val.extend(pickle.load(fp))
+            domain_files = pickle.load(fp)
+            # Replicate the label for each file in this domain
+            domain_labels_expanded = [domain_labels[0] for _ in range(len(domain_files))]
+            labels_val.extend(domain_labels_expanded)
+            all_files_val.extend(domain_files)
 
         dir_test = args.dir + sdir + '/test_antennas_' + str(csi_act) + '/'
         name_labels = args.dir + sdir + '/labels_test_antennas_' + str(csi_act) + suffix
         with open(name_labels, "rb") as fp:  # Unpickling
-            labels_test.extend(pickle.load(fp))
+            domain_labels = pickle.load(fp)
         name_f = args.dir + sdir + '/files_test_antennas_' + str(csi_act) + suffix
         with open(name_f, "rb") as fp:  # Unpickling
-            all_files_test.extend(pickle.load(fp))
+            domain_files = pickle.load(fp)
+            # Replicate the label for each file in this domain
+            domain_labels_expanded = [domain_labels[0] for _ in range(len(domain_files))]
+            labels_test.extend(domain_labels_expanded)
+            all_files_test.extend(domain_files)
 
     file_train_selected = [all_files_train[idx] for idx in range(len(labels_train)) if labels_train[idx] in
                            labels_considered]
@@ -150,14 +207,8 @@ if __name__ == '__main__':
     
     print("Sample labels:", labels_train_selected_expanded[:5])
     print("Label shapes:", np.array(labels_train_selected_expanded).shape)
-    name_cache = name_base + '_' + str(csi_act) + '_cache_train'
-    dataset_csi_train = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
-                                              stream_ant_train, input_network, batch_size,
-                                              shuffle=True, cache_file=name_cache).map(lambda x, y: (x, tf.reshape(y, [])))
-    options = tf.data.Options()
-    options.experimental_optimization.map_parallelization = True
-    options.experimental_threading.max_intra_op_parallelism = 1
-    dataset_csi_train = dataset_csi_train.with_options(options)
+    
+    # Also expand validation and test data
     file_val_selected = [all_files_val[idx] for idx in range(len(labels_val)) if labels_val[idx] in
                          labels_considered]
     labels_val_selected = [labels_val[idx] for idx in range(len(labels_val)) if labels_val[idx] in
@@ -165,86 +216,343 @@ if __name__ == '__main__':
 
     file_val_selected_expanded, labels_val_selected_expanded, stream_ant_val = \
         expand_antennas(file_val_selected, labels_val_selected, num_antennas)
-
-    name_cache_val = name_base + '_' + str(csi_act) + '_cache_val'
-    dataset_csi_val = create_dataset_single(file_val_selected_expanded, labels_val_selected_expanded,
-                                            stream_ant_val, input_network, batch_size,
-                                            shuffle=False, cache_file=name_cache_val)
-
+        
     file_test_selected = [all_files_test[idx] for idx in range(len(labels_test)) if labels_test[idx] in
-                          labels_considered]
+                         labels_considered]
     labels_test_selected = [labels_test[idx] for idx in range(len(labels_test)) if labels_test[idx] in
-                            labels_considered]
+                           labels_considered]
 
     file_test_selected_expanded, labels_test_selected_expanded, stream_ant_test = \
         expand_antennas(file_test_selected, labels_test_selected, num_antennas)
+    
+    # Create a custom data generator for training instead of using TensorFlow's dataset API
+    class CustomDataGenerator(tf.keras.utils.Sequence):
+        def __init__(self, file_names, labels, stream_indices, input_shape=(340, 100, 1), batch_size=16):
+            self.file_names = file_names
+            self.labels = labels
+            self.stream_indices = stream_indices
+            self.input_shape = input_shape
+            self.batch_size = batch_size
+            self.num_samples = len(file_names)
 
-    name_cache_test = name_base + '_' + str(csi_act) + '_cache_test'
-    dataset_csi_test = create_dataset_single(file_test_selected_expanded, labels_test_selected_expanded,
-                                             stream_ant_test, input_network, batch_size,
-                                             shuffle=False, cache_file=name_cache_test)
+        def __len__(self):
+            return (self.num_samples + self.batch_size - 1) // self.batch_size
 
-    csi_model = csi_network_inc_res(input_network, output_shape)
+        def __getitem__(self, idx):
+            batch_x = np.zeros((self.batch_size,) + self.input_shape)
+            batch_y = np.zeros(self.batch_size)
+            
+            for i in range(self.batch_size):
+                sample_idx = idx * self.batch_size + i
+                if sample_idx >= self.num_samples:
+                    # Pad with zeros if we're at the end
+                    continue
+                    
+                try:
+                    # Load the data file
+                    file_path = self.file_names[sample_idx]
+                    stream_idx = self.stream_indices[sample_idx]
+                    
+                    # Load and preprocess the data
+                    with open(file_path, 'rb') as f:
+                        data = pickle.load(f)
+                        
+                    # Extract the specific antenna stream and reshape
+                    # data shape is (antennas, features, time)
+                    data = data[stream_idx]  # Get specific antenna data
+                    data = np.transpose(data, (1, 0))  # Reshape to (time, features)
+                    data = np.expand_dims(data, axis=-1)  # Add channel dimension
+                    
+                    # Store in batch
+                    batch_x[i] = data
+                    batch_y[i] = self.labels[sample_idx]
+                    
+                except Exception as e:
+                    print(f"Warning: Error loading file {file_path}: {str(e)}")
+                    # Keep zeros for this sample
+                    continue
+            
+            return batch_x, batch_y
+
+    # Create label mapping
+    unique_labels = np.unique(np.concatenate([labels_train_selected_expanded, 
+                                            labels_val_selected_expanded,
+                                            labels_test_selected_expanded]))
+    label_to_index = {label: idx for idx, label in enumerate(sorted(unique_labels))}
+    index_to_label = {idx: label for label, idx in label_to_index.items()}
+    with open('label_mapping.pkl', 'wb') as f:
+        pickle.dump(label_to_index, f)
+    # Convert labels to continuous indices
+    train_labels_continuous = np.array([label_to_index[label] for label in labels_train_selected_expanded])
+    val_labels_continuous = np.array([label_to_index[label] for label in labels_val_selected_expanded])
+    test_labels_continuous = np.array([label_to_index[label] for label in labels_test_selected_expanded])
+
+    # Calculate class weights based on continuous indices
+    num_classes = len(unique_labels)
+    class_weights = compute_class_weights(train_labels_continuous, num_classes)
+
+    print("\nLabel to index mapping:")
+    for label, idx in label_to_index.items():
+        print(f"  Original label {label} -> Index {idx}")
+
+    print("\nClass weights:")
+    for idx in range(num_classes):
+        print(f"  Class {idx} (original label {index_to_label[idx]}): {class_weights[idx]:.4f}")
+
+    # Create data generators with continuous indices
+    train_generator = CustomDataGenerator(
+        file_train_selected_expanded, 
+        train_labels_continuous,
+        stream_ant_train,
+        input_shape=(340, 100, 1),
+        batch_size=batch_size
+    )
+
+    val_generator = CustomDataGenerator(
+        file_val_selected_expanded,
+        val_labels_continuous,
+        stream_ant_val,
+        input_shape=(340, 100, 1),
+        batch_size=batch_size
+    )
+
+    test_generator = CustomDataGenerator(
+        file_test_selected_expanded,
+        test_labels_continuous,
+        stream_ant_test,
+        input_shape=(340, 100, 1),
+        batch_size=batch_size
+    )
+
+    # Print sample batch shape for verification
+    x_sample, y_sample = train_generator[0]
+    print(f"Training batch shape: {x_sample.shape}, labels shape: {y_sample.shape}")
+    print(f"Sample labels: {y_sample[:5]}")
+
+    # Create the model with the correct number of output classes
+    csi_model = create_model(input_shape=(340, 100, 1), num_classes=num_classes)
     csi_model.summary()
 
+    # Define optimizer and loss function
     optimiz = tf.keras.optimizers.Adam(learning_rate=0.0001)
-
     loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
     csi_model.compile(optimizer=optimiz, loss=loss, metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
 
+    # Dataset statistics
     num_samples_train = len(file_train_selected_expanded)
     num_samples_val = len(file_val_selected_expanded)
     num_samples_test = len(file_test_selected_expanded)
     lab, count = np.unique(labels_train_selected_expanded, return_counts=True)
     lab_val, count_val = np.unique(labels_val_selected_expanded, return_counts=True)
     lab_test, count_test = np.unique(labels_test_selected_expanded, return_counts=True)
-    train_steps_per_epoch = int(np.ceil(num_samples_train/batch_size))
-    val_steps_per_epoch = int(np.ceil(num_samples_val/batch_size))
-    test_steps_per_epoch = int(np.ceil(num_samples_test/batch_size))
-
+    
+    # Display dataset information 
+    print(f"Training samples: {num_samples_train}")
+    print(f"Validation samples: {num_samples_val}")
+    print(f"Test samples: {num_samples_test}")
+    
+    print("\nDetailed training label distribution:")
+    label_counts = {}
+    for lbl in np.unique(labels_train_selected_expanded):
+        count = np.sum(np.array(labels_train_selected_expanded) == lbl)
+        label_counts[int(lbl)] = count
+        print(f"  Label {lbl}: {count} samples")
+    
+    print("\nDetailed validation label distribution:")
+    for lbl in np.unique(labels_val_selected_expanded):
+        count = np.sum(np.array(labels_val_selected_expanded) == lbl)
+        print(f"  Label {lbl}: {count} samples")
+    
+    print("\nDetailed test label distribution:")
+    for lbl in np.unique(labels_test_selected_expanded):
+        count = np.sum(np.array(labels_test_selected_expanded) == lbl)
+        print(f"  Label {lbl}: {count} samples")
+    
+    # Fix the lab/count iterable error - more robust type checking
+    print(f"\nTraining labels and counts: ")
+    print(f"  lab type: {type(lab)}")
+    print(f"  count type: {type(count)}")
+    
+    try:
+        if hasattr(lab, '__iter__') and hasattr(count, '__iter__'):
+            # Both are iterable
+            for l, c in zip(lab, count):
+                print(f"  Label {l}: {c} samples")
+        elif isinstance(lab, (int, np.integer)) and isinstance(count, (int, np.integer)):
+            # Both are single integers
+            print(f"  Label {lab}: {count} samples")
+        else:
+            # Mixed types or other cases
+            print(f"  Unable to print label counts due to incompatible types")
+    except Exception as e:
+        print(f"  Error processing label counts: {e}")
+    
+    # Data loading diagnostics
+    print("\nData loading diagnostics:")
+    print(f"  Number of subdir folders: {len(subdirs_training.split(','))}")
+    print(f"  Subdirs: {subdirs_training}")
+    
+    # Debug raw data counts before filtering/expansion
+    print("\nRaw data counts before filtering/expansion:")
+    print(f"  Raw training files: {len(all_files_train)}")
+    print(f"  Raw training labels: {len(labels_train)}")
+    
+    # Check first few raw training files
+    if len(all_files_train) > 0:
+        print(f"\nFirst 5 raw training files:")
+        for i in range(min(5, len(all_files_train))):
+            print(f"  {i}: {all_files_train[i]}")
+    
+    # Check first few raw training labels
+    if len(labels_train) > 0:
+        print(f"\nFirst 10 raw training labels:")
+        for i in range(min(10, len(labels_train))):
+            print(f"  {i}: {labels_train[i]}")
+    
+    # Check file filtering process
+    print("\nChecking the file filtering process:")
+    print(f"  Labels considered shape: {labels_considered.shape}")
+    print(f"  Labels considered: {labels_considered}")
+    
+    # Count files that match the labels_considered criteria
+    matching_count = sum(1 for label in labels_train if label in labels_considered)
+    print(f"  Files with matching labels: {matching_count} out of {len(labels_train)}")
+    
+    # Debug the file selection process
+    print("\nFile selection process:")
+    print(f"  Selected files (after filtering): {len(file_train_selected)}")
+    print(f"  Selected labels (after filtering): {len(labels_train_selected)}")
+    
+    # Check the expansion process
+    print("\nExpansion process:")
+    print(f"  Pre-expansion files: {len(file_train_selected)}")
+    print(f"  num_antennas: {num_antennas}")
+    print(f"  Expected post-expansion: {len(file_train_selected) * num_antennas}")
+    print(f"  Actual post-expansion: {len(file_train_selected_expanded)}")
+    
+    # Print a sample of the expanded data
+    if len(file_train_selected_expanded) > 0:
+        print(f"\nSample of expanded files (first 5):")
+        for i in range(min(5, len(file_train_selected_expanded))):
+            print(f"  {i}: File={file_train_selected_expanded[i]}, Label={labels_train_selected_expanded[i]}, Stream={stream_ant_train[i]}")
+    
+    # Examine if we're only loading one file per domain
+    print("\nChecking for potential domain-specific loading patterns:")
+    for domain_idx, sdir in enumerate(subdirs_training.split(',')):
+        try:
+            # Load the original files and check how many are selected
+            name_f = args.dir + sdir + '/files_train_antennas_' + str(csi_act) + suffix
+            name_labels = args.dir + sdir + '/labels_train_antennas_' + str(csi_act) + suffix
+            
+            with open(name_f, "rb") as fp:
+                domain_files = pickle.load(fp)
+            
+            with open(name_labels, "rb") as fp:
+                domain_labels = pickle.load(fp)
+            
+            # Count how many files from this domain are selected
+            domain_files_in_selected = sum(1 for f in file_train_selected if any(f == df for df in domain_files))
+            
+            print(f"  Domain {sdir}: {len(domain_files)} total files, {domain_files_in_selected} selected")
+            
+            # Check if only one file per domain is selected
+            if domain_files_in_selected == 1:
+                print(f"    WARNING: Only one file selected from domain {sdir}!")
+                # Find which file it is
+                for i, f in enumerate(file_train_selected):
+                    if any(f == df for df in domain_files):
+                        print(f"    Selected file: {f}")
+                        print(f"    Label: {labels_train_selected[i]}")
+                        break
+            
+        except Exception as e:
+            print(f"  Error analyzing domain {sdir}: {e}")
+    
+    # Safety check to prevent training with empty datasets
+    if num_samples_train == 0:
+        print("Error: No training samples found. Cannot proceed with training.")
+        exit(1)
+    
+    # Define callbacks
     callback_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
-
     name_model = name_base + '_' + str(csi_act) + '_network.keras'
     callback_save = tf.keras.callbacks.ModelCheckpoint(name_model, save_freq='epoch', save_best_only=True,
                                                        monitor='val_sparse_categorical_accuracy')
 
-    results = csi_model.fit(dataset_csi_train, epochs=25, steps_per_epoch=train_steps_per_epoch,
-                            validation_data=dataset_csi_val, validation_steps=val_steps_per_epoch,
-                            callbacks=[callback_save, callback_stop])
+    # Check that the generators are working
+    print("Checking data generators...")
+    try:
+        test_batch = train_generator[0]
+        print(f"Training batch shape: {test_batch[0].shape}, labels shape: {test_batch[1].shape}")
+    except Exception as e:
+        print(f"Error testing data generator: {e}")
+        sys.exit(1)
+    
+    # Train with class weights
+    results = csi_model.fit(
+        train_generator,
+        epochs=25,
+        validation_data=val_generator,
+        callbacks=[callback_save, callback_stop],
+        class_weight=class_weights
+    )
 
+    # For inference, create a model that includes the softmax
+    inference_model = tf.keras.Sequential([
+        csi_model,
+        tf.keras.layers.Softmax()
+    ])
+
+    # Save both models
     csi_model.save(name_model)
+    inference_model.save(name_model.replace('.keras', '_inference.keras'))
 
-    csi_model = tf.keras.models.load_model(name_model)
+    # Function to convert continuous indices back to original labels
+    def convert_predictions_to_original_labels(predictions):
+        return np.array([index_to_label[idx] for idx in predictions])
 
-    # train
+    # Use inference model for predictions
+    print("Evaluating on training data...")
     train_labels_true = np.array(labels_train_selected_expanded)
+    train_prediction_list = []
+    for i in range(len(train_generator)):
+        batch_x, _ = train_generator[i]
+        batch_pred = inference_model.predict(batch_x, verbose=0)
+        train_prediction_list.append(batch_pred)
 
-    name_cache_train_test = name_base + '_' + str(csi_act) + '_cache_train_test'
-    dataset_csi_train_test = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
-                                                   stream_ant_train, input_network, batch_size,
-                                                   shuffle=False, cache_file=name_cache_train_test, prefetch=False)
-    train_prediction_list = csi_model.predict(dataset_csi_train_test,
-                                              steps=train_steps_per_epoch)[:train_labels_true.shape[0]]
-
-    train_labels_pred = np.argmax(train_prediction_list, axis=1)
-
+    train_prediction_list = np.vstack(train_prediction_list)[:train_labels_true.shape[0]]
+    train_labels_pred_continuous = np.argmax(train_prediction_list, axis=1)
+    train_labels_pred = convert_predictions_to_original_labels(train_labels_pred_continuous)
     conf_matrix_train = confusion_matrix(train_labels_true, train_labels_pred)
 
-    # val
+    # Predict on validation data
+    print("Evaluating on validation data...")
     val_labels_true = np.array(labels_val_selected_expanded)
-    val_prediction_list = csi_model.predict(dataset_csi_val, steps=val_steps_per_epoch)[:val_labels_true.shape[0]]
-
-    val_labels_pred = np.argmax(val_prediction_list, axis=1)
-
+    
+    val_prediction_list = []
+    for i in range(len(val_generator)):
+        batch_x, _ = val_generator[i]
+        batch_pred = inference_model.predict(batch_x, verbose=0)
+        val_prediction_list.append(batch_pred)
+    
+    val_prediction_list = np.vstack(val_prediction_list)[:val_labels_true.shape[0]]
+    val_labels_pred_continuous = np.argmax(val_prediction_list, axis=1)
+    val_labels_pred = convert_predictions_to_original_labels(val_labels_pred_continuous)
     conf_matrix_val = confusion_matrix(val_labels_true, val_labels_pred)
 
-    # test
+    # Predict on test data
+    print("Evaluating on test data...")
     test_labels_true = np.array(labels_test_selected_expanded)
-
-    test_prediction_list = csi_model.predict(dataset_csi_test, steps=test_steps_per_epoch)[
-                            :test_labels_true.shape[0]]
-
-    test_labels_pred = np.argmax(test_prediction_list, axis=1)
+    
+    test_prediction_list = []
+    for i in range(len(test_generator)):
+        batch_x, _ = test_generator[i]
+        batch_pred = inference_model.predict(batch_x, verbose=0)
+        test_prediction_list.append(batch_pred)
+    
+    test_prediction_list = np.vstack(test_prediction_list)[:test_labels_true.shape[0]]
+    test_labels_pred_continuous = np.argmax(test_prediction_list, axis=1)
+    test_labels_pred = convert_predictions_to_original_labels(test_labels_pred_continuous)
 
     conf_matrix = confusion_matrix(test_labels_true, test_labels_pred)
     precision, recall, fscore, _ = precision_recall_fscore_support(test_labels_true,
@@ -255,11 +563,17 @@ if __name__ == '__main__':
     # merge antennas test
     labels_true_merge = np.array(labels_test_selected)
     pred_max_merge = np.zeros_like(labels_test_selected)
+    
+    # Process predictions by antenna groups
     for i_lab in range(len(labels_test_selected)):
-        pred_antennas = test_prediction_list[i_lab * num_antennas:(i_lab + 1) * num_antennas, :]
-        lab_merge_max = np.argmax(np.sum(pred_antennas, axis=0))
+        # Get predictions for all antennas for this sample
+        pred_antennas = test_prediction_list[i_lab*num_antennas:(i_lab+1)*num_antennas, :]
+        # Sum predictions across antennas
+        sum_pred = np.sum(pred_antennas, axis=0)
+        lab_merge_max = np.argmax(sum_pred)
 
-        pred_max_antennas = test_labels_pred[i_lab * num_antennas:(i_lab + 1) * num_antennas]
+        # Get predicted classes for each antenna
+        pred_max_antennas = test_labels_pred[i_lab*num_antennas:(i_lab+1)*num_antennas]
         lab_unique, count = np.unique(pred_max_antennas, return_counts=True)
         lab_max_merge = -1
         if lab_unique.shape[0] > 1:
