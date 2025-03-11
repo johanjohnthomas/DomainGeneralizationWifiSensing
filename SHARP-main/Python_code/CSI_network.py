@@ -147,11 +147,13 @@ if __name__ == '__main__':
 
     file_train_selected_expanded, labels_train_selected_expanded, stream_ant_train = \
         expand_antennas(file_train_selected, labels_train_selected, num_antennas)
-
+    
+    print("Sample labels:", labels_train_selected_expanded[:5])
+    print("Label shapes:", np.array(labels_train_selected_expanded).shape)
     name_cache = name_base + '_' + str(csi_act) + '_cache_train'
     dataset_csi_train = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
                                               stream_ant_train, input_network, batch_size,
-                                              shuffle=True, cache_file=name_cache)
+                                              shuffle=True, cache_file=name_cache).map(lambda x, y: (x, tf.reshape(y, [])))
     options = tf.data.Options()
     options.experimental_optimization.map_parallelization = True
     options.experimental_threading.max_intra_op_parallelism = 1
@@ -187,7 +189,7 @@ if __name__ == '__main__':
 
     optimiz = tf.keras.optimizers.Adam(learning_rate=0.0001)
 
-    loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits='True')
+    loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
     csi_model.compile(optimizer=optimiz, loss=loss, metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
 
     num_samples_train = len(file_train_selected_expanded)

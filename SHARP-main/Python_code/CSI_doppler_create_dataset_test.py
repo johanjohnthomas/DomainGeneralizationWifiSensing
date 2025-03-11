@@ -154,8 +154,10 @@ if __name__ == '__main__':
                 with open(name_file, "wb") as fp:  # Pickling
                     pickle.dump(csi_matrices_wind[ii], fp)
             name_labels = exp_dir + '/labels_complete_antennas_' + str(activities) + suffix
-            with open(name_labels, "wb") as fp:  # Pickling
-                pickle.dump(labels_wind, fp)
+            with open(name_labels, "wb") as fp:
+                # Convert numpy ints to Python ints before saving
+                labels_set = [int(label) for label in labels]
+                pickle.dump(labels_set, fp)
             name_f = exp_dir + '/files_complete_antennas_' + str(activities) + suffix
             with open(name_f, "wb") as fp:  # Pickling
                 pickle.dump(names_complete, fp)

@@ -23,7 +23,7 @@ import shutil
 tf.random.set_seed(42)
 def convert_to_number(lab, csi_label_dict):
     lab_num = np.argwhere(np.asarray(csi_label_dict) == lab)[0][0]
-    return lab_num
+    return int(lab_num)
 
 
 def create_windows(csi_list, labels_list, sample_length, stride_length):
@@ -58,7 +58,7 @@ def create_windows_antennas(csi_list, labels_list, sample_length, stride_length,
 
 def expand_antennas(file_names, labels, num_antennas):
     file_names_expanded = [item for item in file_names for _ in range(num_antennas)]
-    labels_expanded = [item for item in labels for _ in range(num_antennas)]
+    labels_expanded = [int(label) for label in labels for _ in range(num_antennas)]  # Force Python ints
     stream_ant = np.tile(np.arange(num_antennas), len(labels))
     return file_names_expanded, labels_expanded, stream_ant
 
@@ -149,10 +149,10 @@ def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_sha
 
         # New optimized pipeline order
         dataset_csi = dataset_csi.map(
-        lambda csi_file, label, stream: (
-            tf.numpy_function(load_data_single, [csi_file, stream], tf.float32),
-            label
-        ),
+            lambda csi_file, label, stream: (
+                tf.numpy_function(load_data_single, [csi_file, stream], tf.float32),
+                tf.squeeze(label)  # Ensure labels are scalars
+            ),
         num_parallel_calls=tf.data.AUTOTUNE
     )
         dataset_csi = dataset_csi.cache(cache_file)
