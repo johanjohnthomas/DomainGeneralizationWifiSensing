@@ -30,6 +30,35 @@ import sys
 import gc
 from network_utility import *
 
+# Define the custom data generator for consistent data loading
+class CustomDataGenerator(tf.keras.utils.Sequence):
+    def __init__(self, file_names, labels, input_shape=(340, 100, 4), batch_size=16, shuffle=True):
+        self.file_names = file_names
+        self.labels = labels
+        self.input_shape = input_shape
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.indices = np.arange(len(file_names))
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+
+    def __len__(self):
+        return int(np.ceil(len(self.file_names) / self.batch_size))
+
+    def __getitem__(self, idx):
+        batch_indices = self.indices[idx*self.batch_size : (idx+1)*self.batch_size]
+        batch_files = [self.file_names[i] for i in batch_indices]
+        batch_labels = [self.labels[i] for i in batch_indices]
+        
+        batch_x = []
+        for file_path in batch_files:
+            with open(file_path, 'rb') as f:
+                data = pickle.load(f)  # Shape (4, 100, 340)
+            data = np.transpose(data, (2, 1, 0))  # Transpose to (340, 100, 4)
+            batch_x.append(data)
+        
+        return np.array(batch_x), np.array(batch_labels)
+
 def find_label_mapping(name_base, model_dir=None):
     """
     Find the label mapping file by checking multiple possible locations.
@@ -642,24 +671,37 @@ if __name__ == '__main__':
         )
     except Exception as e:
         print(f"Error creating multi-channel dataset: {e}")
-        print("Trying original approach as last resort...")
+        print("Trying simplified multi-channel approach...")
         
-        # Expand antennas for dataset creation (original approach as fallback)
-        file_complete_selected_expanded, labels_complete_selected_expanded, stream_ant_complete = \
-            expand_antennas(file_complete_selected, labels_complete_selected, num_antennas)
+        # Do not expand antennas, maintain consistent approach with training
+        file_complete_selected_expanded = file_complete_selected
+        labels_complete_selected_expanded = labels_complete_selected
             
-        print(f"Data files expanded to {len(file_complete_selected_expanded)} samples with {num_antennas} antennas each.")
-
-        # Create dataset with original approach
+        print(f"Using {len(file_complete_selected_expanded)} samples with multi-channel approach.")
+        
         try:
-            dataset_csi_complete = create_dataset_single(file_complete_selected_expanded, labels_complete_selected_expanded,
-                                                        stream_ant_complete, input_network, batch_size, shuffle=False,
-                                                        cache_file=name_base + '_' + str(csi_act) + '_cache_complete')
+            # Create a custom data generator for testing
+            test_generator = CustomDataGenerator(
+                file_complete_selected_expanded, 
+                labels_complete_selected_expanded,
+                input_shape=input_network,
+                batch_size=batch_size,
+                shuffle=False
+            )
+            
+            # Create a dataset from the generator
+            dataset_csi_complete = tf.data.Dataset.from_generator(
+                lambda: ((x, y) for x, y in test_generator),
+                output_signature=(
+                    tf.TensorSpec(shape=(None,) + input_network, dtype=tf.float32),
+                    tf.TensorSpec(shape=(None,), dtype=tf.int32)
+                )
+            )
         except Exception as e:
             print(f"Error creating dataset: {e}")
             sys.exit(1)
             
-        # After creating the dataset, also update the label information for the original approach
+        # After creating the dataset, also update the label information
         num_samples_complete = len(file_complete_selected_expanded)
         lab_complete, count_complete = np.unique(labels_complete_selected_expanded, return_counts=True)
         complete_labels_true = np.array(labels_complete_selected_expanded)

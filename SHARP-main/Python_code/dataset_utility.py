@@ -86,16 +86,19 @@ def create_windows_antennas(csi_list, labels_list, sample_length, stride_length,
     csi_matrix_stride = []
     labels_stride = []
     for i in range(len(labels_list)):
-        csi_i = csi_list[i]
+        csi_i = csi_list[i]  # Shape: (antennas, features, time)
         label_i = labels_list[i]
         len_csi = csi_i.shape[2]
-        for ii in range(0, (len_csi - sample_length) + 1, stride_length):
-            csi_wind = csi_i[:, :, ii:ii + sample_length, ...]
+        
+        for ii in range(0, len_csi - sample_length + 1, stride_length):
+            # Extract window with all antennas
+            window = csi_i[:, :, ii:ii + sample_length]  # (antennas, features, time)
             if remove_mean:
-                csi_mean = np.mean(csi_wind, axis=2, keepdims=True)
-                csi_wind = csi_wind - csi_mean
-            csi_matrix_stride.append(csi_wind)
+                csi_mean = np.mean(window, axis=2, keepdims=True)
+                window = window - csi_mean
+            csi_matrix_stride.append(window)
             labels_stride.append(label_i)
+    
     return csi_matrix_stride, labels_stride
 
 
@@ -252,6 +255,13 @@ def load_data_multi_channel(csi_file_t):
         matrix_csi_multi = np.transpose(matrix_csi, (2, 1, 0))
         print(f"  - After transpose shape: {matrix_csi_multi.shape}")
         
+        # STEP 2: Mean normalization across antennas (axis=2)
+        print(f"  STEP 2: Mean normalization across antennas")
+        mean = np.mean(matrix_csi_multi, axis=2, keepdims=True)
+        matrix_csi_multi = matrix_csi_multi - mean
+        print(f"  - After normalization shape: {matrix_csi_multi.shape}")
+        print(f"  - After normalization min/max: {np.min(matrix_csi_multi)}/{np.max(matrix_csi_multi)}")
+        
         # Verify final data
         print(f"FINAL multi-channel data shape: {matrix_csi_multi.shape}")
         print(f"FINAL data min/max: {np.min(matrix_csi_multi)}/{np.max(matrix_csi_multi)}")
@@ -339,95 +349,67 @@ def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_sha
     
     return dataset_csi
 
-def create_dataset_multi_channel(csi_matrix_files, labels, input_shape, batch_size, shuffle, cache_file,
-                               prefetch=True, repeat=False):
+def create_dataset_multi_channel(csi_matrix_files, labels, input_shape, batch_size, shuffle, cache_file, buffer_size=100):
     """
-    Create a dataset where each sample has all antennas as channels.
-    This is the preferred approach for processing CSI data.
+    Creates a tf.data.Dataset for multi-channel CSI data where each sample contains all antennas.
     
     Args:
-        csi_matrix_files: List of CSI data files
-        labels: List of corresponding labels
-        input_shape: Expected shape of the model input (without batch dimension)
-        batch_size: Batch size for training/inference
+        csi_matrix_files: List of file paths to the CSI data
+        labels: List of labels corresponding to the files
+        input_shape: Shape of the input data (expected to be (feature_length, sample_length, num_antennas))
+        batch_size: Batch size for training
         shuffle: Whether to shuffle the dataset
-        cache_file: File to cache the dataset
-        prefetch: Whether to prefetch data
-        repeat: Whether to repeat the dataset
+        cache_file: Path to cache the dataset
+        buffer_size: Buffer size for shuffling
         
     Returns:
-        TensorFlow dataset
+        A tf.data.Dataset instance
     """
-    if len(csi_matrix_files) == 0:
-        print("Error: Empty dataset - no files to process!")
-        raise ValueError("Cannot create dataset with empty file list - please check your data paths and make sure files exist")
+    # Define a function to load and preprocess a single file
+    def load_and_process_file(file_path, label):
+        def _parse_function(file_path, label):
+            # Load the CSI matrix from the file
+            with open(file_path.numpy().decode('utf-8'), 'rb') as f:
+                csi_matrix = pickle.load(f)
+            
+            # Transpose to get (feature_length, sample_length, num_antennas)
+            # From (num_antennas, sample_length, feature_length) to (feature_length, sample_length, num_antennas)
+            csi_matrix = np.transpose(csi_matrix, (2, 1, 0))
+            
+            return csi_matrix, label
         
-    print(f"Creating multi-channel dataset with {len(csi_matrix_files)} samples")
-    dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels))
-    
-    with tf.device('/cpu:0'):
-        # Clear existing cache if present
-        if cache_file and os.path.exists(cache_file):
-            try:
-                if os.path.isfile(cache_file):
-                    os.remove(cache_file)
-                elif os.path.isdir(cache_file):
-                    shutil.rmtree(cache_file)
-            except Exception as e:
-                print(f"Error clearing cache: {e}")
-
-        # Define the map function with proper error handling
-        def safe_load_data_multi_channel(csi_file, label):
-            try:
-                # Print more information about the tensors
-                file_path = csi_file.numpy().decode() if hasattr(csi_file, 'numpy') else str(csi_file)
-                label_value = label.numpy() if hasattr(label, 'numpy') else label
-                
-                print(f"Processing file: {file_path}")
-                print(f"Label: {label_value}")
-                
-                # Call the data loading function with explicit decoding of string tensor
-                data = tf.numpy_function(
-                    func=load_data_multi_channel,
-                    inp=[csi_file],
-                    Tout=tf.float32
-                )
-                
-                # Verify the returned data
-                print(f"Returned data shape: {data.shape}")
-                
-                # Check for all zeros as a heuristic for dummy data
-                if tf.reduce_all(tf.equal(data, 0)):
-                    print("WARNING: Data contains all zeros!")
-                    raise ValueError("Loaded data contains all zeros - potential dummy data detected")
-                    
-                return data, tf.squeeze(label)
-            except Exception as e:
-                print(f"Error in safe_load_data_multi_channel: {e}")
-                raise
-
-        # Apply mapping
-        dataset_csi = dataset_csi.map(
-            safe_load_data_multi_channel,
-            num_parallel_calls=tf.data.AUTOTUNE
+        # Use tf.py_function to wrap the Python function
+        csi_matrix, label = tf.py_function(
+            _parse_function,
+            [file_path, label],
+            [tf.float32, tf.int32]
         )
         
-        # Cache after mapping
-        dataset_csi = dataset_csi.cache(cache_file)
+        # Set the shape information that was lost in the py_function
+        csi_matrix.set_shape(input_shape)
+        label.set_shape([])
         
-        # Shuffle if needed
-        if shuffle:
-            dataset_csi = dataset_csi.shuffle(buffer_size=max(100, len(csi_matrix_files)))
-        
-        # Batch the data
-        dataset_csi = dataset_csi.batch(batch_size)
-        
-        # Repeat if needed
-        if repeat:
-            dataset_csi = dataset_csi.repeat()
-            
-        # Prefetch for performance
-        if prefetch:
-            dataset_csi = dataset_csi.prefetch(buffer_size=tf.data.AUTOTUNE)
+        return csi_matrix, label
     
-    return dataset_csi
+    # Create a dataset from the file paths and labels
+    dataset = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels))
+    
+    # Cache the dataset for better performance
+    if cache_file:
+        dataset = dataset.cache(cache_file)
+    
+    # Shuffle the dataset if requested
+    if shuffle:
+        dataset = dataset.shuffle(buffer_size=buffer_size)
+    
+    # Map the loading function to each element
+    dataset = dataset.map(load_and_process_file, 
+                         num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    
+    # Batch the dataset
+    dataset = dataset.batch(batch_size)
+    
+    # Prefetch for better performance
+    dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
+    
+    return dataset

@@ -108,20 +108,24 @@ def create_model(input_shape=(340, 100, 4), num_classes=6):
     conv3_1 = tf.keras.layers.Conv2D(3, (3, 3), padding='same', 
                                     kernel_regularizer=regularizer,
                                     name='1stconv3_1_res_a')(input_network)
+    conv3_1 = tf.keras.layers.BatchNormalization()(conv3_1)
     conv3_1 = tf.keras.layers.Activation('relu', name='activation_1')(conv3_1)
     conv3_2 = tf.keras.layers.Conv2D(6, (3, 3), padding='same', 
                                     kernel_regularizer=regularizer,
                                     name='1stconv3_2_res_a')(conv3_1)
+    conv3_2 = tf.keras.layers.BatchNormalization()(conv3_2)
     conv3_2 = tf.keras.layers.Activation('relu', name='activation_2')(conv3_2)
     conv3_3 = tf.keras.layers.Conv2D(9, (3, 3), strides=(2, 2), padding='same', 
                                     kernel_regularizer=regularizer,
                                     name='1stconv3_3_res_a')(conv3_2)
+    conv3_3 = tf.keras.layers.BatchNormalization()(conv3_3)
     conv3_3 = tf.keras.layers.Activation('relu', name='activation_3')(conv3_3)
     
     # Second branch - 2x2 convolutions
     conv2_1 = tf.keras.layers.Conv2D(5, (2, 2), strides=(2, 2), padding='same', 
                                     kernel_regularizer=regularizer,
                                     name='1stconv2_1_res_a')(input_network)
+    conv2_1 = tf.keras.layers.BatchNormalization()(conv2_1)
     conv2_1 = tf.keras.layers.Activation('relu', name='activation')(conv2_1)
     
     # Third branch - max pooling
@@ -134,6 +138,7 @@ def create_model(input_shape=(340, 100, 4), num_classes=6):
     conv4 = tf.keras.layers.Conv2D(3, (1, 1), 
                                  kernel_regularizer=regularizer,
                                  name='conv4')(concat)
+    conv4 = tf.keras.layers.BatchNormalization()(conv4)
     conv4 = tf.keras.layers.Activation('relu', name='activation_4')(conv4)
     
     # Flatten and dense layers
@@ -343,111 +348,58 @@ if __name__ == '__main__':
     labels_train_selected = [labels_train[idx] for idx in range(len(labels_train)) if labels_train[idx] in
                              labels_considered]
 
-    file_train_selected_expanded, labels_train_selected_expanded, stream_ant_train = \
-        expand_antennas(file_train_selected, labels_train_selected, num_antennas)
+    # No expansion needed - use original files and labels
+    file_train_selected_expanded = file_train_selected
+    labels_train_selected_expanded = labels_train_selected
     
     print("Sample labels:", labels_train_selected_expanded[:5])
     print("Label shapes:", np.array(labels_train_selected_expanded).shape)
     
-    # Also expand validation and test data
+    # Also use original validation and test data without expansion
     file_val_selected = [all_files_val[idx] for idx in range(len(labels_val)) if labels_val[idx] in
                          labels_considered]
     labels_val_selected = [labels_val[idx] for idx in range(len(labels_val)) if labels_val[idx] in
                            labels_considered]
 
-    file_val_selected_expanded, labels_val_selected_expanded, stream_ant_val = \
-        expand_antennas(file_val_selected, labels_val_selected, num_antennas)
+    file_val_selected_expanded = file_val_selected
+    labels_val_selected_expanded = labels_val_selected
         
     file_test_selected = [all_files_test[idx] for idx in range(len(labels_test)) if labels_test[idx] in
                          labels_considered]
     labels_test_selected = [labels_test[idx] for idx in range(len(labels_test)) if labels_test[idx] in
                            labels_considered]
 
-    file_test_selected_expanded, labels_test_selected_expanded, stream_ant_test = \
-        expand_antennas(file_test_selected, labels_test_selected, num_antennas)
+    file_test_selected_expanded = file_test_selected
+    labels_test_selected_expanded = labels_test_selected
     
     # Create a custom data generator for training instead of using TensorFlow's dataset API
     class CustomDataGenerator(tf.keras.utils.Sequence):
-        def __init__(self, file_names, labels, stream_indices, input_shape=(340, 100, 4), batch_size=16, shuffle=True):
+        def __init__(self, file_names, labels, input_shape=(340, 100, 4), batch_size=16, shuffle=True):
             self.file_names = file_names
             self.labels = labels
-            self.stream_indices = stream_indices
             self.input_shape = input_shape
             self.batch_size = batch_size
-            self.num_samples = len(file_names)
             self.shuffle = shuffle
-            
-            # Group files by original sample (before antenna expansion)
-            self.grouped_files = {}
-            self.grouped_labels = {}
-            
-            # Find all unique files (without considering antenna index)
-            unique_files = set()
-            for i, file_path in enumerate(file_names):
-                # Remove the last part of the path that might contain antenna index
-                base_file = file_path
-                unique_files.add(base_file)
-                
-                # Group by base file
-                if base_file not in self.grouped_files:
-                    self.grouped_files[base_file] = []
-                    self.grouped_labels[base_file] = labels[i]  # All antennas have same label
-                
-                self.grouped_files[base_file].append(i)
-            
-            # Convert to list for indexing
-            self.unique_files = list(unique_files)
-            # Create index array for shuffling
-            self.indices = np.arange(len(self.unique_files))
-            # Do initial shuffling if required
+            self.indices = np.arange(len(file_names))
             if self.shuffle:
                 np.random.shuffle(self.indices)
-                
-            print(f"Data generator created with {len(self.unique_files)} unique samples, shuffle={self.shuffle}")
 
         def __len__(self):
-            return (len(self.unique_files) + self.batch_size - 1) // self.batch_size
-
-        def on_epoch_end(self):
-            # Shuffle indices at the end of each epoch if shuffle is enabled
-            if self.shuffle:
-                np.random.shuffle(self.indices)
-                print("Shuffling data at the end of epoch")
+            return int(np.ceil(len(self.file_names) / self.batch_size))
 
         def __getitem__(self, idx):
-            batch_x = np.zeros((self.batch_size,) + self.input_shape)
-            batch_y = np.zeros(self.batch_size)
+            batch_indices = self.indices[idx*self.batch_size : (idx+1)*self.batch_size]
+            batch_files = [self.file_names[i] for i in batch_indices]
+            batch_labels = [self.labels[i] for i in batch_indices]
             
-            for i in range(self.batch_size):
-                sample_idx = idx * self.batch_size + i
-                if sample_idx >= len(self.unique_files):
-                    # Pad with zeros if we're at the end
-                    continue
-                    
-                try:
-                    # Get the base file and associated indices using shuffled index if applicable
-                    shuffled_idx = self.indices[sample_idx]
-                    base_file = self.unique_files[shuffled_idx]
-                    
-                    # Load and process data from all antennas for this sample
-                    with open(base_file, 'rb') as f:
-                        data = pickle.load(f)
-                    
-                    # Process all antennas together
-                    # data shape is (antennas, time, features) => (4, 100, 340)
-                    # We want (features, time, antennas) => (340, 100, 4)
-                    data = np.transpose(data, (2, 1, 0))
-                    
-                    # Store in batch
-                    batch_x[i] = data
-                    batch_y[i] = self.grouped_labels[base_file]
-                    
-                except Exception as e:
-                    print(f"Warning: Error loading file {base_file}: {str(e)}")
-                    # Keep zeros for this sample
-                    continue
+            batch_x = []
+            for file_path in batch_files:
+                with open(file_path, 'rb') as f:
+                    data = pickle.load(f)  # Shape (4, 100, 340)
+                data = np.transpose(data, (2, 1, 0))  # Transpose to (340, 100, 4)
+                batch_x.append(data)
             
-            return batch_x, batch_y
+            return np.array(batch_x), np.array(batch_labels)
 
     # Create label mapping
     unique_labels = np.unique(np.concatenate([labels_train_selected_expanded, 
@@ -522,14 +474,12 @@ if __name__ == '__main__':
     if not all(valid_val_mask):
         print(f"Filtering out {np.sum(~valid_val_mask)} validation samples with labels not in training set")
         file_val_selected_expanded = [f for i, f in enumerate(file_val_selected_expanded) if valid_val_mask[i]]
-        stream_ant_val = [s for i, s in enumerate(stream_ant_val) if valid_val_mask[i]]
         labels_val_selected_expanded = [l for i, l in enumerate(labels_val_selected_expanded) if valid_val_mask[i]]
     
     # Filter test samples
     if not all(valid_test_mask):
         print(f"Filtering out {np.sum(~valid_test_mask)} test samples with labels not in training set")
         file_test_selected_expanded = [f for i, f in enumerate(file_test_selected_expanded) if valid_test_mask[i]]
-        stream_ant_test = [s for i, s in enumerate(stream_ant_test) if valid_test_mask[i]]
         labels_test_selected_expanded = [l for i, l in enumerate(labels_test_selected_expanded) if valid_test_mask[i]]
     
     # Now convert the filtered validation and test labels
@@ -566,32 +516,29 @@ if __name__ == '__main__':
     val_labels_continuous_keras = np.array([index_mapping.get(idx, 0) for idx in val_labels_continuous])
     test_labels_continuous_keras = np.array([index_mapping.get(idx, 0) for idx in test_labels_continuous])
     
-    # Update data generators with remapped indices
+    # Create training and validation generators
     train_generator = CustomDataGenerator(
         file_train_selected_expanded, 
         train_labels_continuous_keras,  # Use remapped indices
-        stream_ant_train,
         input_shape=(340, 100, 4),
         batch_size=batch_size,
-        shuffle=True  # Explicitly set shuffle=True for training data
+        shuffle=True
     )
-
+    
     val_generator = CustomDataGenerator(
         file_val_selected_expanded,
         val_labels_continuous_keras,  # Use remapped indices
-        stream_ant_val,
         input_shape=(340, 100, 4),
         batch_size=batch_size,
-        shuffle=False  # No need to shuffle validation data
+        shuffle=False
     )
-
+    
     test_generator = CustomDataGenerator(
         file_test_selected_expanded,
         test_labels_continuous_keras,  # Use remapped indices
-        stream_ant_test,
         input_shape=(340, 100, 4),
         batch_size=batch_size,
-        shuffle=False  # No need to shuffle test data
+        shuffle=False
     )
     
     # Save the index_mapping for later use in prediction
@@ -654,14 +601,14 @@ if __name__ == '__main__':
     csi_model.summary()
 
     # Define optimizer and loss function with improved learning rate schedule
-    # Use a lower initial learning rate and add decay for better convergence
-    initial_learning_rate = 0.00005  # Reduced from 0.0001
+    # As recommended by expert reviewer
+    initial_learning_rate = 0.001
     
-    # Add learning rate decay to prevent overfitting
+    # Add learning rate decay schedule with new parameters
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         initial_learning_rate,
-        decay_steps=100,
-        decay_rate=0.95,
+        decay_steps=1000,
+        decay_rate=0.96,
         staircase=True)
     
     # Use the schedule with Adam optimizer
@@ -779,9 +726,9 @@ if __name__ == '__main__':
     
     # Print a sample of the expanded data
     if len(file_train_selected_expanded) > 0:
-        print(f"\nSample of expanded files (first 5):")
+        print(f"\nSample of files (first 5):")
         for i in range(min(5, len(file_train_selected_expanded))):
-            print(f"  {i}: File={file_train_selected_expanded[i]}, Label={labels_train_selected_expanded[i]}, Stream={stream_ant_train[i]}")
+            print(f"  {i}: File={file_train_selected_expanded[i]}, Label={labels_train_selected_expanded[i]}")
     
     # Examine if we're only loading one file per domain
     print("\nChecking for potential domain-specific loading patterns:")
