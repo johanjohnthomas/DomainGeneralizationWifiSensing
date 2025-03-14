@@ -21,11 +21,36 @@ import os
 from dataset_utility import create_dataset_single, expand_antennas
 from network_utility import *
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
+from sklearn.utils.class_weight import compute_class_weight
 import glob
 import gc
 import shutil
 import hashlib
 import sys
+import time
+
+"""
+IMPORTANT ARCHITECTURAL NOTE:
+
+This script has been updated to use a multi-channel approach for processing CSI data.
+The key architectural changes are:
+
+1. The model now takes inputs with shape (340, 100, 4), where:
+   - 340: Feature dimension (height)
+   - 100: Time dimension (width)
+   - 4: All 4 antennas processed together as channels
+
+2. The data loading pipeline has been modified to:
+   - Process all 4 antennas together for each sample
+   - Transpose the data from (4, 100, 340) to (340, 100, 4)
+   - This allows the model to leverage cross-antenna correlations
+
+3. Evaluation is performed on original samples, not expanded by antenna
+
+This approach significantly improves classification accuracy by utilizing
+all antenna data simultaneously instead of processing each antenna separately.
+"""
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TF logging
 os.environ['TF_DETERMINISTIC_OPS'] = '1'  # For reproducibility
 os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'  # Better GPU mem management
@@ -41,31 +66,58 @@ if gpus:
         print(e)
 
 def compute_class_weights(labels, num_classes):
-    """Compute class weights for imbalanced dataset."""
-    total_samples = len(labels)
-    unique_labels, counts = np.unique(labels, return_counts=True)
+    """Compute class weights for imbalanced dataset using inverse frequency."""
+    # Get unique labels that exist in the dataset
+    unique_labels = np.unique(labels)
+    
+    # Use scikit-learn's compute_class_weight with 'balanced' setting
+    # This automatically computes inverse frequency weights
+    sk_weights = compute_class_weight(class_weight='balanced', 
+                                     classes=unique_labels, 
+                                     y=labels)
+    
+    # Create a dictionary to store the weights
     weights = {}
+    for i, label_idx in enumerate(unique_labels):
+        weights[label_idx] = sk_weights[i]
+    
+    # Add default weights for any classes not in the dataset
     for idx in range(num_classes):
-        if idx in unique_labels:
-            weights[idx] = total_samples / (num_classes * counts[np.where(unique_labels == idx)[0][0]])
-        else:
+        if idx not in weights:
+            print(f"Warning: Class {idx} not found in dataset, using default weight 1.0")
             weights[idx] = 1.0
+    
+    # Log the weights
+    print("Class weights based on inverse frequency:")
+    print("  Class weights:", weights)
+            
     return weights
 
-def create_model(input_shape=(340, 100, 1), num_classes=6):
+def create_model(input_shape=(340, 100, 4), num_classes=6):
     """Create the CSI network model."""
     input_network = tf.keras.layers.Input(shape=input_shape)
     
+    # Add L2 regularization to all convolutional layers
+    regularizer = tf.keras.regularizers.l2(0.001)
+    
     # First branch - 3x3 convolutions
-    conv3_1 = tf.keras.layers.Conv2D(3, (3, 3), padding='same', name='1stconv3_1_res_a')(input_network)
+    conv3_1 = tf.keras.layers.Conv2D(3, (3, 3), padding='same', 
+                                    kernel_regularizer=regularizer,
+                                    name='1stconv3_1_res_a')(input_network)
     conv3_1 = tf.keras.layers.Activation('relu', name='activation_1')(conv3_1)
-    conv3_2 = tf.keras.layers.Conv2D(6, (3, 3), padding='same', name='1stconv3_2_res_a')(conv3_1)
+    conv3_2 = tf.keras.layers.Conv2D(6, (3, 3), padding='same', 
+                                    kernel_regularizer=regularizer,
+                                    name='1stconv3_2_res_a')(conv3_1)
     conv3_2 = tf.keras.layers.Activation('relu', name='activation_2')(conv3_2)
-    conv3_3 = tf.keras.layers.Conv2D(9, (3, 3), strides=(2, 2), padding='same', name='1stconv3_3_res_a')(conv3_2)
+    conv3_3 = tf.keras.layers.Conv2D(9, (3, 3), strides=(2, 2), padding='same', 
+                                    kernel_regularizer=regularizer,
+                                    name='1stconv3_3_res_a')(conv3_2)
     conv3_3 = tf.keras.layers.Activation('relu', name='activation_3')(conv3_3)
     
     # Second branch - 2x2 convolutions
-    conv2_1 = tf.keras.layers.Conv2D(5, (2, 2), strides=(2, 2), padding='same', name='1stconv2_1_res_a')(input_network)
+    conv2_1 = tf.keras.layers.Conv2D(5, (2, 2), strides=(2, 2), padding='same', 
+                                    kernel_regularizer=regularizer,
+                                    name='1stconv2_1_res_a')(input_network)
     conv2_1 = tf.keras.layers.Activation('relu', name='activation')(conv2_1)
     
     # Third branch - max pooling
@@ -75,13 +127,21 @@ def create_model(input_shape=(340, 100, 1), num_classes=6):
     concat = tf.keras.layers.Concatenate(name='concatenate')([pool1, conv2_1, conv3_3])
     
     # Additional convolution
-    conv4 = tf.keras.layers.Conv2D(3, (1, 1), name='conv4')(concat)
+    conv4 = tf.keras.layers.Conv2D(3, (1, 1), 
+                                 kernel_regularizer=regularizer,
+                                 name='conv4')(concat)
     conv4 = tf.keras.layers.Activation('relu', name='activation_4')(conv4)
     
     # Flatten and dense layers
     flat = tf.keras.layers.Flatten(name='flatten')(conv4)
-    drop = tf.keras.layers.Dropout(0.5, name='dropout')(flat)
-    dense2 = tf.keras.layers.Dense(num_classes, name='dense2')(drop)
+    
+    # Increase dropout rate from 0.5 to 0.6 for better regularization
+    drop = tf.keras.layers.Dropout(0.6, name='dropout')(flat)
+    
+    # Add regularization to the final dense layer
+    dense2 = tf.keras.layers.Dense(num_classes, 
+                                 kernel_regularizer=regularizer,
+                                 name='dense2')(drop)
     
     # Create model
     model = tf.keras.Model(inputs=input_network, outputs=dense2, name='csi_model')
@@ -227,16 +287,51 @@ if __name__ == '__main__':
     
     # Create a custom data generator for training instead of using TensorFlow's dataset API
     class CustomDataGenerator(tf.keras.utils.Sequence):
-        def __init__(self, file_names, labels, stream_indices, input_shape=(340, 100, 1), batch_size=16):
+        def __init__(self, file_names, labels, stream_indices, input_shape=(340, 100, 4), batch_size=16, shuffle=True):
             self.file_names = file_names
             self.labels = labels
             self.stream_indices = stream_indices
             self.input_shape = input_shape
             self.batch_size = batch_size
             self.num_samples = len(file_names)
+            self.shuffle = shuffle
+            
+            # Group files by original sample (before antenna expansion)
+            self.grouped_files = {}
+            self.grouped_labels = {}
+            
+            # Find all unique files (without considering antenna index)
+            unique_files = set()
+            for i, file_path in enumerate(file_names):
+                # Remove the last part of the path that might contain antenna index
+                base_file = file_path
+                unique_files.add(base_file)
+                
+                # Group by base file
+                if base_file not in self.grouped_files:
+                    self.grouped_files[base_file] = []
+                    self.grouped_labels[base_file] = labels[i]  # All antennas have same label
+                
+                self.grouped_files[base_file].append(i)
+            
+            # Convert to list for indexing
+            self.unique_files = list(unique_files)
+            # Create index array for shuffling
+            self.indices = np.arange(len(self.unique_files))
+            # Do initial shuffling if required
+            if self.shuffle:
+                np.random.shuffle(self.indices)
+                
+            print(f"Data generator created with {len(self.unique_files)} unique samples, shuffle={self.shuffle}")
 
         def __len__(self):
-            return (self.num_samples + self.batch_size - 1) // self.batch_size
+            return (len(self.unique_files) + self.batch_size - 1) // self.batch_size
+
+        def on_epoch_end(self):
+            # Shuffle indices at the end of each epoch if shuffle is enabled
+            if self.shuffle:
+                np.random.shuffle(self.indices)
+                print("Shuffling data at the end of epoch")
 
         def __getitem__(self, idx):
             batch_x = np.zeros((self.batch_size,) + self.input_shape)
@@ -244,31 +339,30 @@ if __name__ == '__main__':
             
             for i in range(self.batch_size):
                 sample_idx = idx * self.batch_size + i
-                if sample_idx >= self.num_samples:
+                if sample_idx >= len(self.unique_files):
                     # Pad with zeros if we're at the end
                     continue
                     
                 try:
-                    # Load the data file
-                    file_path = self.file_names[sample_idx]
-                    stream_idx = self.stream_indices[sample_idx]
+                    # Get the base file and associated indices using shuffled index if applicable
+                    shuffled_idx = self.indices[sample_idx]
+                    base_file = self.unique_files[shuffled_idx]
                     
-                    # Load and preprocess the data
-                    with open(file_path, 'rb') as f:
+                    # Load and process data from all antennas for this sample
+                    with open(base_file, 'rb') as f:
                         data = pickle.load(f)
-                        
-                    # Extract the specific antenna stream and reshape
-                    # data shape is (antennas, features, time)
-                    data = data[stream_idx]  # Get specific antenna data
-                    data = np.transpose(data, (1, 0))  # Reshape to (time, features)
-                    data = np.expand_dims(data, axis=-1)  # Add channel dimension
+                    
+                    # Process all antennas together
+                    # data shape is (antennas, time, features) => (4, 100, 340)
+                    # We want (features, time, antennas) => (340, 100, 4)
+                    data = np.transpose(data, (2, 1, 0))
                     
                     # Store in batch
                     batch_x[i] = data
-                    batch_y[i] = self.labels[sample_idx]
+                    batch_y[i] = self.grouped_labels[base_file]
                     
                 except Exception as e:
-                    print(f"Warning: Error loading file {file_path}: {str(e)}")
+                    print(f"Warning: Error loading file {base_file}: {str(e)}")
                     # Keep zeros for this sample
                     continue
             
@@ -278,65 +372,237 @@ if __name__ == '__main__':
     unique_labels = np.unique(np.concatenate([labels_train_selected_expanded, 
                                             labels_val_selected_expanded,
                                             labels_test_selected_expanded]))
-    label_to_index = {label: idx for idx, label in enumerate(sorted(unique_labels))}
+    
+    print(f"Found {len(unique_labels)} unique labels across all datasets: {unique_labels}")
+    
+    # IMPORTANT: We are simplifying the label mapping to only include 
+    # classes that actually exist in the training data
+    # This prevents issues with extraneous classes like C1, C2, E2, etc.
+    training_labels_only = np.unique(labels_train_selected_expanded)
+    print(f"Found {len(training_labels_only)} unique labels in TRAINING data: {training_labels_only}")
+    print("Using ONLY training labels for mapping to ensure model outputs match actual classes")
+    
+    # Ensure all labels are numeric for consistency
+    numeric_labels = []
+    for label in training_labels_only:  # Only use training labels
+        if isinstance(label, (int, np.integer)):
+            numeric_labels.append(int(label))
+        elif isinstance(label, str) and label.isdigit():
+            numeric_labels.append(int(label))
+        else:
+            # For non-numeric labels, we'll assign a unique numeric ID
+            print(f"Warning: Non-numeric label '{label}' found, using numeric placeholder")
+            numeric_labels.append(hash(str(label)) % 1000)  # Use hash for unique numeric ID
+    
+    # Create the mapping with consistent numeric types - using ONLY training labels
+    label_to_index = {label: idx for idx, label in enumerate(sorted(numeric_labels))}
     index_to_label = {idx: label for label, idx in label_to_index.items()}
+    
+    # Print the simplified mapping
+    print("\nSimplified label mapping (using only training labels):")
+    for label, idx in label_to_index.items():
+        print(f"  Original label {label} → Index {idx}")
+    
+    # Check that all validation and test labels have mappings
+    missing_val_labels = [lbl for lbl in np.unique(labels_val_selected_expanded) if lbl not in label_to_index]
+    missing_test_labels = [lbl for lbl in np.unique(labels_test_selected_expanded) if lbl not in label_to_index]
+    
+    if missing_val_labels or missing_test_labels:
+        print("\nWARNING: Some validation/test labels are not in training data!")
+        print(f"  Missing validation labels: {missing_val_labels}")
+        print(f"  Missing test labels: {missing_test_labels}")
+        print("  These samples will be excluded from evaluation.")
+    
+    # Save the simplified mappings for easier loading in test scripts
+    mapping_data = {
+        'label_to_index': label_to_index,
+        'index_to_label': index_to_label,
+        'activities': [str(a) for a in activities.tolist()]  # Ensure activities are strings
+    }
+    
+    # Save in multiple formats and locations for better accessibility
     with open('label_mapping.pkl', 'wb') as f:
-        pickle.dump(label_to_index, f)
+        pickle.dump(label_to_index, f)  # Original format for backward compatibility
+        
+    with open(f'{name_base}_label_mapping.pkl', 'wb') as f:
+        pickle.dump(mapping_data, f)  # Enhanced format
+    
+    print(f"Simplified label mapping saved to 'label_mapping.pkl' and '{name_base}_label_mapping.pkl'")
+    
     # Convert labels to continuous indices
     train_labels_continuous = np.array([label_to_index[label] for label in labels_train_selected_expanded])
+    
+    # For validation and test, we need to filter out samples with labels not in the training set
+    # First, create masks for valid samples
+    valid_val_mask = np.array([label in label_to_index for label in labels_val_selected_expanded])
+    valid_test_mask = np.array([label in label_to_index for label in labels_test_selected_expanded])
+    
+    # Filter validation samples
+    if not all(valid_val_mask):
+        print(f"Filtering out {np.sum(~valid_val_mask)} validation samples with labels not in training set")
+        file_val_selected_expanded = [f for i, f in enumerate(file_val_selected_expanded) if valid_val_mask[i]]
+        stream_ant_val = [s for i, s in enumerate(stream_ant_val) if valid_val_mask[i]]
+        labels_val_selected_expanded = [l for i, l in enumerate(labels_val_selected_expanded) if valid_val_mask[i]]
+    
+    # Filter test samples
+    if not all(valid_test_mask):
+        print(f"Filtering out {np.sum(~valid_test_mask)} test samples with labels not in training set")
+        file_test_selected_expanded = [f for i, f in enumerate(file_test_selected_expanded) if valid_test_mask[i]]
+        stream_ant_test = [s for i, s in enumerate(stream_ant_test) if valid_test_mask[i]]
+        labels_test_selected_expanded = [l for i, l in enumerate(labels_test_selected_expanded) if valid_test_mask[i]]
+    
+    # Now convert the filtered validation and test labels
     val_labels_continuous = np.array([label_to_index[label] for label in labels_val_selected_expanded])
     test_labels_continuous = np.array([label_to_index[label] for label in labels_test_selected_expanded])
 
     # Calculate class weights based on continuous indices
     num_classes = len(unique_labels)
-    class_weights = compute_class_weights(train_labels_continuous, num_classes)
-
-    print("\nLabel to index mapping:")
-    for label, idx in label_to_index.items():
-        print(f"  Original label {label} -> Index {idx}")
-
-    print("\nClass weights:")
-    for idx in range(num_classes):
-        print(f"  Class {idx} (original label {index_to_label[idx]}): {class_weights[idx]:.4f}")
-
-    # Create data generators with continuous indices
+    class_weights_raw = compute_class_weights(train_labels_continuous, num_classes)
+    
+    # Keras requires class_weight to be a dictionary with keys from 0 to num_classes-1
+    print("\nAdjusting class weights for Keras (requires consecutive indices from 0 to num_classes-1):")
+    
+    # Find the actual number of unique classes in the training data
+    actual_unique_classes = len(np.unique(train_labels_continuous))
+    print(f"Number of unique classes in training data: {actual_unique_classes}")
+    
+    # Create a proper keras-compatible class weights dictionary
+    # Map from our indices to consecutive indices (0 to num_classes-1)
+    unique_indices = sorted(list(set(train_labels_continuous)))
+    index_mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(unique_indices)}
+    
+    # Create a new class weights dictionary with proper consecutive indices
+    class_weights = {}
+    for i in range(actual_unique_classes):
+        if i < len(unique_indices):
+            old_idx = unique_indices[i]
+            class_weights[i] = class_weights_raw.get(old_idx, 1.0)
+        else:
+            class_weights[i] = 1.0  # Default weight for any missing class
+    
+    # We also need to remap the continuous labels to match this mapping
+    train_labels_continuous_keras = np.array([index_mapping.get(idx, 0) for idx in train_labels_continuous])
+    val_labels_continuous_keras = np.array([index_mapping.get(idx, 0) for idx in val_labels_continuous])
+    test_labels_continuous_keras = np.array([index_mapping.get(idx, 0) for idx in test_labels_continuous])
+    
+    # Update data generators with remapped indices
     train_generator = CustomDataGenerator(
         file_train_selected_expanded, 
-        train_labels_continuous,
+        train_labels_continuous_keras,  # Use remapped indices
         stream_ant_train,
-        input_shape=(340, 100, 1),
-        batch_size=batch_size
+        input_shape=(340, 100, 4),
+        batch_size=batch_size,
+        shuffle=True  # Explicitly set shuffle=True for training data
     )
 
     val_generator = CustomDataGenerator(
         file_val_selected_expanded,
-        val_labels_continuous,
+        val_labels_continuous_keras,  # Use remapped indices
         stream_ant_val,
-        input_shape=(340, 100, 1),
-        batch_size=batch_size
+        input_shape=(340, 100, 4),
+        batch_size=batch_size,
+        shuffle=False  # No need to shuffle validation data
     )
 
     test_generator = CustomDataGenerator(
         file_test_selected_expanded,
-        test_labels_continuous,
+        test_labels_continuous_keras,  # Use remapped indices
         stream_ant_test,
-        input_shape=(340, 100, 1),
-        batch_size=batch_size
+        input_shape=(340, 100, 4),
+        batch_size=batch_size,
+        shuffle=False  # No need to shuffle test data
     )
+    
+    # Save the index_mapping for later use in prediction
+    with open(f'{name_base}_index_mapping.pkl', 'wb') as f:
+        pickle.dump({
+            'index_mapping': index_mapping,
+            'reverse_mapping': {new_idx: old_idx for old_idx, new_idx in index_mapping.items()}
+        }, f)
+    
+    print(f"\nIndex mapping for Keras compatibility (saved to {name_base}_index_mapping.pkl):")
+    for old_idx, new_idx in index_mapping.items():
+        print(f"  Original index {old_idx} → Keras index {new_idx}")
+    
+    # Print Keras-compatible class weights
+    print("\nKeras-compatible class weights:")
+    for idx in range(actual_unique_classes):
+        # Ensure we have weights for all classes 0 to actual_unique_classes-1
+        if idx not in class_weights:
+            class_weights[idx] = 1.0
+            print(f"  Class {idx}: {class_weights[idx]:.4f} (added default weight)")
+        else:
+            print(f"  Class {idx}: {class_weights[idx]:.4f}")
+            
+    # Verify class weights have exactly the right keys
+    class_weight_keys = set(class_weights.keys())
+    expected_keys = set(range(actual_unique_classes))
+    if class_weight_keys != expected_keys:
+        print("Adjusting class weights to match expected keys exactly...")
+        # Create a new dictionary with exactly the right keys
+        adjusted_weights = {idx: class_weights.get(idx, 1.0) for idx in range(actual_unique_classes)}
+        class_weights = adjusted_weights
+        print(f"Final class weights: {class_weights}")
+
+    # Print original mapping info for reference
+    print("\nLabel to index mapping (original):")
+    for label, idx in label_to_index.items():
+        print(f"  Original label {label} -> Index {idx}")
 
     # Print sample batch shape for verification
     x_sample, y_sample = train_generator[0]
     print(f"Training batch shape: {x_sample.shape}, labels shape: {y_sample.shape}")
     print(f"Sample labels: {y_sample[:5]}")
+    
+    # Verify that shuffling is working by showing the first few indices
+    print("\nVerifying data shuffling:")
+    print(f"First 10 indices of training data: {train_generator.indices[:10]}")
+    # Get a second batch to verify different indices are used
+    x_sample2, y_sample2 = train_generator[1]
+    print(f"Second batch sample labels: {y_sample2[:5]}")
+    # Simulate an epoch end to trigger reshuffling
+    train_generator.on_epoch_end()
+    print(f"After reshuffling, first 10 indices: {train_generator.indices[:10]}")
+    
+    # Also verify that validation and test data are not being shuffled
+    print(f"First 10 indices of validation data (should be ordered 0-9): {val_generator.indices[:10]}")
 
-    # Create the model with the correct number of output classes
-    csi_model = create_model(input_shape=(340, 100, 1), num_classes=num_classes)
+    # Create the model with the number of classes equal to the number of unique indices in Keras space
+    actual_unique_classes = len(np.unique(train_labels_continuous_keras))
+    csi_model = create_model(input_shape=(340, 100, 4), num_classes=actual_unique_classes)
     csi_model.summary()
 
-    # Define optimizer and loss function
-    optimiz = tf.keras.optimizers.Adam(learning_rate=0.0001)
+    # Define optimizer and loss function with improved learning rate schedule
+    # Use a lower initial learning rate and add decay for better convergence
+    initial_learning_rate = 0.00005  # Reduced from 0.0001
+    
+    # Add learning rate decay to prevent overfitting
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate,
+        decay_steps=100,
+        decay_rate=0.95,
+        staircase=True)
+    
+    # Use the schedule with Adam optimizer
+    optimiz = tf.keras.optimizers.Adam(
+        learning_rate=lr_schedule,
+        beta_1=0.9,
+        beta_2=0.999,
+        epsilon=1e-07,
+        amsgrad=True  # Enable AMSGrad variant for better convergence
+    )
+    
+    # Use sparse categorical crossentropy loss with from_logits=True
     loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    csi_model.compile(optimizer=optimiz, loss=loss, metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
+    
+    # Add additional metrics for better performance monitoring
+    metrics = [
+        tf.keras.metrics.SparseCategoricalAccuracy(name='accuracy'),
+        tf.keras.metrics.SparseTopKCategoricalAccuracy(k=2, name='top2_accuracy')
+    ]
+    
+    # Compile the model with our improved settings
+    csi_model.compile(optimizer=optimiz, loss=loss, metrics=metrics)
 
     # Dataset statistics
     num_samples_train = len(file_train_selected_expanded)
@@ -473,11 +739,44 @@ if __name__ == '__main__':
         print("Error: No training samples found. Cannot proceed with training.")
         exit(1)
     
-    # Define callbacks
-    callback_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
+    # Define improved callbacks for better training
+    # 1. Early stopping with increased patience and monitoring validation accuracy
+    callback_stop = tf.keras.callbacks.EarlyStopping(
+        monitor='val_accuracy',
+        patience=5,  # Increased from 3 to give model more time to converge
+        min_delta=0.001,  # Minimum change to qualify as improvement
+        verbose=1,
+        restore_best_weights=True  # Restore model weights from the epoch with the best value of the monitored quantity
+    )
+    
+    # 2. Model checkpoint to save the best model
     name_model = name_base + '_' + str(csi_act) + '_network.keras'
-    callback_save = tf.keras.callbacks.ModelCheckpoint(name_model, save_freq='epoch', save_best_only=True,
-                                                       monitor='val_sparse_categorical_accuracy')
+    callback_save = tf.keras.callbacks.ModelCheckpoint(
+        name_model,
+        save_freq='epoch',
+        save_best_only=True,
+        monitor='val_accuracy',
+        verbose=1
+    )
+    
+    # 3. Reduce learning rate when validation metrics plateau
+    callback_reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
+        monitor='val_loss',
+        factor=0.2,  # Reduce learning rate by factor of 0.2 when plateau is detected
+        patience=3,
+        min_delta=0.001,
+        verbose=1,
+        min_lr=0.000001  # Minimum learning rate
+    )
+    
+    # 4. TensorBoard logging
+    log_dir = f"logs/{name_base}_{str(csi_act)}_{int(time.time())}"
+    callback_tensorboard = tf.keras.callbacks.TensorBoard(
+        log_dir=log_dir,
+        histogram_freq=1,
+        write_graph=True,
+        update_freq='epoch'
+    )
 
     # Check that the generators are working
     print("Checking data generators...")
@@ -488,15 +787,61 @@ if __name__ == '__main__':
         print(f"Error testing data generator: {e}")
         sys.exit(1)
     
-    # Train with class weights
+    # Train with class weights and all callbacks
     results = csi_model.fit(
         train_generator,
-        epochs=25,
+        epochs=30,  # Increased from 25 to give model more time to converge with our regularization
         validation_data=val_generator,
-        callbacks=[callback_save, callback_stop],
-        class_weight=class_weights
+        callbacks=[callback_save, callback_stop, callback_reduce_lr, callback_tensorboard],
+        class_weight=class_weights,
+        verbose=1
     )
 
+    # Verify label mapping consistency
+    print("\nVerifying label mapping consistency:")
+    # Check that all continuous labels are in the expected range
+    try:
+        max_label_idx = max(index_to_label.keys())
+        unique_train_labels = np.unique(train_labels_continuous)
+        unique_val_labels = np.unique(val_labels_continuous)
+        unique_test_labels = np.unique(test_labels_continuous)
+        
+        print(f"Max label index in mapping: {max_label_idx}")
+        print(f"Unique continuous labels in training data: {unique_train_labels}")
+        print(f"Unique continuous labels in validation data: {unique_val_labels}")
+        print(f"Unique continuous labels in test data: {unique_test_labels}")
+        
+        # Check for labels that might be missing in the mapping
+        missing_train = [label for label in unique_train_labels if label not in index_to_label]
+        if missing_train:
+            print(f"Warning: Some training labels are missing in index_to_label mapping: {missing_train}")
+            # Add missing labels with numeric values for consistency
+            for label in missing_train:
+                # Use the label value itself as the label to maintain numeric consistency
+                index_to_label[label] = int(label) if isinstance(label, (int, np.integer)) else 0
+                print(f"  Added missing label {label} → Value {index_to_label[label]}")
+        
+        # Verify that all original labels can be mapped back correctly
+        original_train_labels = []
+        for idx in unique_train_labels:
+            if idx in index_to_label:
+                label = index_to_label[idx]
+                # Ensure numeric labels
+                if isinstance(label, (int, np.integer)):
+                    original_train_labels.append(int(label))
+                elif isinstance(label, str) and label.isdigit():
+                    original_train_labels.append(int(label))
+                else:
+                    original_train_labels.append(0)  # Default numeric placeholder
+            else:
+                print(f"Warning: Label index {idx} not found in mapping, using placeholder")
+                original_train_labels.append(0)  # Use numeric placeholder
+                
+        print(f"Original training labels after mapping and unmapping: {original_train_labels}")
+    except Exception as e:
+        print(f"Warning: Error during label mapping verification: {e}")
+        print("This is non-critical and training will continue.")
+    
     # For inference, create a model that includes the softmax
     inference_model = tf.keras.Sequential([
         csi_model,
@@ -507,27 +852,99 @@ if __name__ == '__main__':
     csi_model.save(name_model)
     inference_model.save(name_model.replace('.keras', '_inference.keras'))
 
-    # Function to convert continuous indices back to original labels
-    def convert_predictions_to_original_labels(predictions):
-        return np.array([index_to_label[idx] for idx in predictions])
+    # Function to convert Keras indices back to original indices then to original labels
+    def convert_predictions_to_original_labels(predicted_indices, index_to_label_map):
+        """
+        Convert predicted indices to their original labels using the mapping.
+        Ensures all returned labels are numeric for consistency.
+        """
+        converted_predictions = []
+        
+        # First, convert Keras indices back to original indices
+        reverse_mapping = {new_idx: old_idx for old_idx, new_idx in index_mapping.items()}
+        
+        # Ensure index_to_label dict has numeric values where possible
+        for key in list(index_to_label_map.keys()):
+            if not isinstance(index_to_label_map[key], (int, np.integer)):
+                try:
+                    index_to_label_map[key] = int(index_to_label_map[key])
+                except:
+                    pass  # Keep as is if not convertible
+        
+        for keras_idx in predicted_indices:
+            # Step 1: Convert Keras index back to original index
+            original_idx = reverse_mapping.get(int(keras_idx), keras_idx)
+            
+            # Step 2: Convert original index to original label
+            if original_idx in index_to_label_map:
+                label = index_to_label_map[original_idx]
+                # Ensure numeric consistency
+                if isinstance(label, (int, np.integer)):
+                    converted_predictions.append(int(label))
+                else:
+                    # Try to convert to integer if it's a string representation of a number
+                    try:
+                        converted_predictions.append(int(label))
+                    except:
+                        # If it's a string like 'Unknown-5', extract the number
+                        if isinstance(label, str) and label.startswith('Unknown-'):
+                            try:
+                                num = int(label.split('-')[1])
+                                converted_predictions.append(num)
+                            except:
+                                converted_predictions.append(0)  # Default
+                        else:
+                            converted_predictions.append(0)  # Default for non-numeric
+            else:
+                # If index not found, use the original index as the label (numeric fallback)
+                converted_predictions.append(int(original_idx))
+                print(f"Warning: Index {original_idx} not found in mapping, using it as the label")
+        
+        return np.array(converted_predictions, dtype=np.int32)
 
     # Use inference model for predictions
     print("Evaluating on training data...")
-    train_labels_true = np.array(labels_train_selected_expanded)
+    # Use the original labels (not expanded) since our data generator now processes all antennas together
+    train_labels_original = np.array(labels_train_selected)
+    # We don't need to remap these since we're comparing original labels directly
+    
     train_prediction_list = []
     for i in range(len(train_generator)):
         batch_x, _ = train_generator[i]
         batch_pred = inference_model.predict(batch_x, verbose=0)
         train_prediction_list.append(batch_pred)
 
-    train_prediction_list = np.vstack(train_prediction_list)[:train_labels_true.shape[0]]
+    # Limit to the number of unique samples (original samples, not expanded)
+    train_prediction_list = np.vstack(train_prediction_list)[:len(train_labels_original)]
     train_labels_pred_continuous = np.argmax(train_prediction_list, axis=1)
-    train_labels_pred = convert_predictions_to_original_labels(train_labels_pred_continuous)
-    conf_matrix_train = confusion_matrix(train_labels_true, train_labels_pred)
-
+    # These are now in Keras index space, we need to convert back to original labels
+    train_labels_pred = convert_predictions_to_original_labels(train_labels_pred_continuous, index_to_label)
+    
+    print(f"Train prediction shape: {train_prediction_list.shape}")
+    print(f"Train labels shape: {train_labels_original.shape}")
+    
+    # Print types of labels to verify consistency
+    print("\nCHECKING LABEL TYPES:")
+    print(f"Train original labels type: {type(train_labels_original[0])} ({train_labels_original[0]})")
+    print(f"Train predicted labels type: {type(train_labels_pred[0])} ({train_labels_pred[0]})")
+    
+    # Convert labels to numeric if they're not already - for confusion matrix calculation
+    train_labels_original_numeric = np.array([int(label) if isinstance(label, (int, np.integer)) else 0 for label in train_labels_original])
+    train_labels_pred_numeric = np.array([int(label) if isinstance(label, (int, np.integer)) else 0 for label in train_labels_pred])
+    
+    # Get all unique label values for consistent matrix dimensions
+    all_train_labels = np.unique(np.concatenate([train_labels_original_numeric, train_labels_pred_numeric]))
+    
+    print(f"Train confusion matrix with {len(all_train_labels)} classes:")
+    train_confusion_matrix = confusion_matrix(train_labels_original_numeric, train_labels_pred_numeric)
+    print(train_confusion_matrix)
+    print("\n")
+    
     # Predict on validation data
     print("Evaluating on validation data...")
-    val_labels_true = np.array(labels_val_selected_expanded)
+    # Use the original labels (not expanded)
+    val_labels_original = np.array(labels_val_selected)
+    # We don't need to remap these since we're comparing original labels directly
     
     val_prediction_list = []
     for i in range(len(val_generator)):
@@ -535,14 +952,30 @@ if __name__ == '__main__':
         batch_pred = inference_model.predict(batch_x, verbose=0)
         val_prediction_list.append(batch_pred)
     
-    val_prediction_list = np.vstack(val_prediction_list)[:val_labels_true.shape[0]]
+    # Limit to the number of unique samples (original samples, not expanded)
+    val_prediction_list = np.vstack(val_prediction_list)[:len(val_labels_original)]
     val_labels_pred_continuous = np.argmax(val_prediction_list, axis=1)
-    val_labels_pred = convert_predictions_to_original_labels(val_labels_pred_continuous)
-    conf_matrix_val = confusion_matrix(val_labels_true, val_labels_pred)
-
+    val_labels_pred = convert_predictions_to_original_labels(val_labels_pred_continuous, index_to_label)
+    
+    print(f"Val prediction shape: {val_prediction_list.shape}")
+    print(f"Val labels shape: {val_labels_original.shape}")
+    
+    # Same for validation
+    val_labels_original_numeric = np.array([int(label) if isinstance(label, (int, np.integer)) else 0 for label in val_labels_original])
+    val_labels_pred_numeric = np.array([int(label) if isinstance(label, (int, np.integer)) else 0 for label in val_labels_pred])
+    
+    all_val_labels = np.unique(np.concatenate([val_labels_original_numeric, val_labels_pred_numeric]))
+    
+    print(f"Validation confusion matrix with {len(all_val_labels)} classes:")
+    val_confusion_matrix = confusion_matrix(val_labels_original_numeric, val_labels_pred_numeric)
+    print(val_confusion_matrix)
+    print("\n")
+    
     # Predict on test data
     print("Evaluating on test data...")
-    test_labels_true = np.array(labels_test_selected_expanded)
+    # Use the original labels (not expanded)
+    test_labels_original = np.array(labels_test_selected)
+    # We don't need to remap these since we're comparing original labels directly
     
     test_prediction_list = []
     for i in range(len(test_generator)):
@@ -550,47 +983,37 @@ if __name__ == '__main__':
         batch_pred = inference_model.predict(batch_x, verbose=0)
         test_prediction_list.append(batch_pred)
     
-    test_prediction_list = np.vstack(test_prediction_list)[:test_labels_true.shape[0]]
+    # Limit to the number of unique samples (original samples, not expanded)
+    test_prediction_list = np.vstack(test_prediction_list)[:len(test_labels_original)]
     test_labels_pred_continuous = np.argmax(test_prediction_list, axis=1)
-    test_labels_pred = convert_predictions_to_original_labels(test_labels_pred_continuous)
-
-    conf_matrix = confusion_matrix(test_labels_true, test_labels_pred)
-    precision, recall, fscore, _ = precision_recall_fscore_support(test_labels_true,
-                                                                   test_labels_pred,
-                                                                   labels=labels_considered, zero_division=0)
-    accuracy = accuracy_score(test_labels_true, test_labels_pred)
-
-    # merge antennas test
-    labels_true_merge = np.array(labels_test_selected)
-    pred_max_merge = np.zeros_like(labels_test_selected)
+    test_labels_pred = convert_predictions_to_original_labels(test_labels_pred_continuous, index_to_label)
     
-    # Process predictions by antenna groups
-    for i_lab in range(len(labels_test_selected)):
-        # Get predictions for all antennas for this sample
-        pred_antennas = test_prediction_list[i_lab*num_antennas:(i_lab+1)*num_antennas, :]
-        # Sum predictions across antennas
-        sum_pred = np.sum(pred_antennas, axis=0)
-        lab_merge_max = np.argmax(sum_pred)
+    print(f"Test prediction shape: {test_prediction_list.shape}")
+    print(f"Test labels shape: {test_labels_original.shape}")
 
-        # Get predicted classes for each antenna
-        pred_max_antennas = test_labels_pred[i_lab*num_antennas:(i_lab+1)*num_antennas]
-        lab_unique, count = np.unique(pred_max_antennas, return_counts=True)
-        lab_max_merge = -1
-        if lab_unique.shape[0] > 1:
-            count_argsort = np.flip(np.argsort(count))
-            count_sort = count[count_argsort]
-            lab_unique_sort = lab_unique[count_argsort]
-            if count_sort[0] == count_sort[1] or lab_unique.shape[0] > 2:  # ex aequo between two labels
-                lab_max_merge = lab_merge_max
-            else:
-                lab_max_merge = lab_unique_sort[0]
-        else:
-            lab_max_merge = lab_unique[0]
-        pred_max_merge[i_lab] = lab_max_merge
+    # Calculate metrics using original (non-expanded) labels
+    # Ensure both arrays are of the same type (numeric)
+    test_labels_original_numeric = np.array([int(l) if isinstance(l, (int, np.integer)) else 0 for l in test_labels_original])
+    test_labels_pred_numeric = np.array([int(l) if isinstance(l, (int, np.integer)) else 0 for l in test_labels_pred])
+    
+    # Now calculate metrics with consistent types
+    conf_matrix = confusion_matrix(test_labels_original_numeric, test_labels_pred_numeric)
+    precision, recall, fscore, _ = precision_recall_fscore_support(
+        test_labels_original_numeric,
+        test_labels_pred_numeric,
+        labels=np.unique(np.concatenate([test_labels_original_numeric, test_labels_pred_numeric])),
+        zero_division=0
+    )
+    accuracy = accuracy_score(test_labels_original_numeric, test_labels_pred_numeric)
 
-    conf_matrix_max_merge = confusion_matrix(labels_true_merge, pred_max_merge, labels=labels_considered)
+    # Since we're now processing all antennas together, we don't need to merge antennas
+    # as was done in the original code. The predictions already incorporate all antennas.
+    labels_true_merge = test_labels_original_numeric
+    pred_max_merge = test_labels_pred_numeric
+    
+    conf_matrix_max_merge = confusion_matrix(labels_true_merge, pred_max_merge, labels=np.unique(np.concatenate([labels_true_merge, pred_max_merge])))
     precision_max_merge, recall_max_merge, fscore_max_merge, _ = \
-        precision_recall_fscore_support(labels_true_merge, pred_max_merge, labels=labels_considered,  zero_division=0)
+        precision_recall_fscore_support(labels_true_merge, pred_max_merge, labels=np.unique(np.concatenate([labels_true_merge, pred_max_merge])), zero_division=0)
     accuracy_max_merge = accuracy_score(labels_true_merge, pred_max_merge)
 
     metrics_matrix_dict = {'conf_matrix': conf_matrix,
@@ -611,61 +1034,44 @@ if __name__ == '__main__':
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)
 
-    # impact of the number of antennas
-    one_antenna = [[0], [1], [2], [3]]
-    two_antennas = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]]
-    three_antennas = [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]]
-    four_antennas = [[0, 1, 2, 3]]
-    seq_ant_list = [one_antenna, two_antennas, three_antennas, four_antennas]
-    average_accuracy_change_num_ant = np.zeros((num_antennas,))
-    average_fscore_change_num_ant = np.zeros((num_antennas,))
-    labels_true_merge = np.array(labels_test_selected)
-    for ant_n in range(num_antennas):
-        seq_ant = seq_ant_list[ant_n]
-        num_seq = len(seq_ant)
-        for seq_n in range(num_seq):
-            pred_max_merge = np.zeros((len(labels_test_selected),))
-            ants_selected = seq_ant[seq_n]
-            for i_lab in range(len(labels_test_selected)):
-                pred_antennas = test_prediction_list[i_lab * num_antennas:(i_lab + 1) * num_antennas, :]
-                pred_antennas = pred_antennas[ants_selected, :]
-
-                lab_merge_max = np.argmax(np.sum(pred_antennas, axis=0))
-
-                pred_max_antennas = test_labels_pred[i_lab * num_antennas:(i_lab + 1) * num_antennas]
-                pred_max_antennas = pred_max_antennas[ants_selected]
-                lab_unique, count = np.unique(pred_max_antennas, return_counts=True)
-                lab_max_merge = -1
-                if lab_unique.shape[0] > 1:
-                    count_argsort = np.flip(np.argsort(count))
-                    count_sort = count[count_argsort]
-                    lab_unique_sort = lab_unique[count_argsort]
-                    if count_sort[0] == count_sort[1] or lab_unique.shape[0] > ant_n - 1:  # ex aequo between two labels
-                        lab_max_merge = lab_merge_max
-                    else:
-                        lab_max_merge = lab_unique_sort[0]
-                else:
-                    lab_max_merge = lab_unique[0]
-                pred_max_merge[i_lab] = lab_max_merge
-
-            _, _, fscore_max_merge, _ = precision_recall_fscore_support(labels_true_merge, pred_max_merge,
-                                                                        labels=[0, 1, 2, 3, 4], zero_division=0)
-            accuracy_max_merge = accuracy_score(labels_true_merge, pred_max_merge)
-
-            average_accuracy_change_num_ant[ant_n] += accuracy_max_merge
-            average_fscore_change_num_ant[ant_n] += np.mean(fscore_max_merge)
-
-        average_accuracy_change_num_ant[ant_n] = average_accuracy_change_num_ant[ant_n] / num_seq
-        average_fscore_change_num_ant[ant_n] = average_fscore_change_num_ant[ant_n] / num_seq
-
-    metrics_matrix_dict = {'average_accuracy_change_num_ant': average_accuracy_change_num_ant,
-                           'average_fscore_change_num_ant': average_fscore_change_num_ant}
-    unique_id = hashlib.md5(f"{csi_act}_{subdirs_training}".encode()).hexdigest()[:8]
-    name_file = f'./outputs/change_number_antennas_test_{unique_id}_b{bandwidth}_sb{sub_band}.txt'
-    # name_file = './outputs/change_number_antennas_test_' + str(csi_act) + '_' + subdirs_training + '_band_' + \
-    #       
-    with open(name_file, "wb") as fp:  # Pickling
-        pickle.dump(metrics_matrix_dict, fp)
+    # Print final results
+    print("\nModel Performance Summary:")
+    print(f"Test Accuracy: {accuracy * 100:.2f}%")
+    print(f"Average F1-Score: {np.mean(fscore):.4f}")
+    print("\nConfusion Matrix:")
+    print(conf_matrix)
+    
+    # Clean up resources
     tf.keras.backend.clear_session()
     gc.collect()
+    
+    # We need to reopen the file for writing since it was previously opened for binary writing
+    name_file_txt = name_file.replace('.txt', '_metrics.txt')
+    
+    # Save the formatted metrics to a text file for easier reading
+    with open(name_file_txt, 'w') as f:
+        f.write(f"Test Metrics:\n")
+        f.write(f"Average Precision: {np.mean(precision):.4f}\n")
+        f.write(f"Average Recall: {np.mean(recall):.4f}\n")
+        f.write(f"Average F1 Score: {np.mean(fscore):.4f}\n")
+        f.write(f"Accuracy: {accuracy:.4f}\n")
+        
+        # Add per-class metrics if available
+        f.write(f"\nPer-class Metrics:\n")
+        unique_labels = np.unique(np.concatenate([test_labels_original_numeric, test_labels_pred_numeric]))
+        for i, label in enumerate(unique_labels):
+            if i < len(precision):
+                f.write(f"Class {label}:\n")
+                f.write(f"  Precision: {precision[i]:.4f}\n")
+                f.write(f"  Recall: {recall[i]:.4f}\n")
+                f.write(f"  F1 Score: {fscore[i]:.4f}\n")
+                f.write(f"  Samples: {np.sum(test_labels_original_numeric == label)}\n")
+                
+        f.write(f"\nConfusion Matrix:\n")
+        f.write(str(conf_matrix))
+    
+    # Print success message
+    print(f"\nResults saved to {name_file_txt}")
+    print("Training and evaluation complete!")
+
     

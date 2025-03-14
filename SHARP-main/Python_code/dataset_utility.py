@@ -120,6 +120,10 @@ def create_dataset_randomized_antennas(csi_matrix_files, labels_stride, input_sh
 
 
 def load_data_single(csi_file_t, stream_a):
+    """
+    Load data from a single file - Note: this function is being kept for backward compatibility
+    but may not be used in the new multi-channel approach.
+    """
     csi_file = csi_file_t
     if isinstance(csi_file_t, (bytes, bytearray)):
         csi_file = csi_file.decode()
@@ -143,25 +147,73 @@ def load_data_single(csi_file_t, stream_a):
         
         # Check the indexed data
         print(f"Stream/antenna index: {stream_a}")
-        matrix_csi_single = matrix_csi[stream_a, ...].T
         
-        print(f"Indexed data shape: {matrix_csi_single.shape}")
-        print(f"Indexed data min/max: {np.min(matrix_csi_single)}/{np.max(matrix_csi_single)}")
-        print(f"Is indexed data all zeros? {np.all(matrix_csi_single == 0)}")
+        # STEP 1: Extract the data for this antenna/stream
+        print("DATA TRANSFORMATION PROCESS:")
+        print(f"  STEP 1: Extract single antenna data (index {stream_a})")
+        matrix_csi_single = matrix_csi[stream_a, ...]
+        print(f"  - Single antenna data shape: {matrix_csi_single.shape}")
         
+        # STEP 2: Transpose the data to match expected dimensions
+        print(f"  STEP 2: Transpose data from (100, 340) to (340, 100)")
+        matrix_csi_single = np.transpose(matrix_csi_single)  # Explicitly use numpy transpose for clarity
+        print(f"  - After transpose shape: {matrix_csi_single.shape}")
+        
+        # STEP 3: Add channel dimension if needed
+        print(f"  STEP 3: Add channel dimension")
         if len(matrix_csi_single.shape) < 3:
-            matrix_csi_single = np.expand_dims(matrix_csi_single, axis=-1)
+            matrix_csi_single = np.expand_dims(matrix_csi_single, axis=-1)  # Shape (340, 100, 1)
+            print(f"  - Final data shape with channel: {matrix_csi_single.shape}")
         
         # Verify final data
-        print(f"Final data shape: {matrix_csi_single.shape}")
-        print(f"Final data min/max: {np.min(matrix_csi_single)}/{np.max(matrix_csi_single)}")
+        print(f"FINAL data shape: {matrix_csi_single.shape}")
+        print(f"FINAL data min/max: {np.min(matrix_csi_single)}/{np.max(matrix_csi_single)}")
         
-        # Raise an error if all zeros
-        if np.all(matrix_csi_single == 0):
-            raise ValueError("Data contains all zeros after processing - check your data source")
-            
         matrix_csi_single = tf.cast(matrix_csi_single, tf.float32)
         return matrix_csi_single
+    except Exception as e:
+        print(f"Error during data loading/processing: {e}")
+        raise
+
+
+def load_data_multi_channel(csi_file_t):
+    """
+    Load data from a file and process all antennas as channels.
+    This is the preferred approach for processing CSI data.
+    """
+    csi_file = csi_file_t
+    if isinstance(csi_file_t, (bytes, bytearray)):
+        csi_file = csi_file.decode()
+    
+    print(f"Loading data from file: {csi_file}")
+    if not os.path.exists(csi_file):
+        raise FileNotFoundError(f"Data file not found: {csi_file}")
+        
+    try:
+        with open(csi_file, "rb") as fp:  # Unpickling
+            matrix_csi = pickle.load(fp)
+        
+        # Check the raw loaded data
+        print(f"Raw data type: {type(matrix_csi)}")
+        if isinstance(matrix_csi, np.ndarray):
+            print(f"Raw data shape: {matrix_csi.shape}")
+            print(f"Raw data min/max: {np.min(matrix_csi)}/{np.max(matrix_csi)}")
+            print(f"Is data all zeros? {np.all(matrix_csi == 0)}")
+        else:
+            print(f"Raw data is not numpy array: {type(matrix_csi)}")
+        
+        # STEP 1: Transpose to get (340, 100, 4) - features as height, time as width, antennas as channels
+        print("MULTI-CHANNEL DATA TRANSFORMATION:")
+        print(f"  STEP 1: Transpose data from (4, 100, 340) to (340, 100, 4)")
+        matrix_csi_multi = np.transpose(matrix_csi, (2, 1, 0))
+        print(f"  - After transpose shape: {matrix_csi_multi.shape}")
+        
+        # Verify final data
+        print(f"FINAL multi-channel data shape: {matrix_csi_multi.shape}")
+        print(f"FINAL data min/max: {np.min(matrix_csi_multi)}/{np.max(matrix_csi_multi)}")
+        
+        matrix_csi_multi = tf.cast(matrix_csi_multi, tf.float32)
+        return matrix_csi_multi
     except Exception as e:
         print(f"Error during data loading/processing: {e}")
         raise
@@ -220,6 +272,99 @@ def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_sha
         # Apply mapping
         dataset_csi = dataset_csi.map(
             safe_load_data,
+            num_parallel_calls=tf.data.AUTOTUNE
+        )
+        
+        # Cache after mapping
+        dataset_csi = dataset_csi.cache(cache_file)
+        
+        # Shuffle if needed
+        if shuffle:
+            dataset_csi = dataset_csi.shuffle(buffer_size=max(100, len(csi_matrix_files)))
+        
+        # Batch the data
+        dataset_csi = dataset_csi.batch(batch_size)
+        
+        # Repeat if needed
+        if repeat:
+            dataset_csi = dataset_csi.repeat()
+            
+        # Prefetch for performance
+        if prefetch:
+            dataset_csi = dataset_csi.prefetch(buffer_size=tf.data.AUTOTUNE)
+    
+    return dataset_csi
+
+def create_dataset_multi_channel(csi_matrix_files, labels, input_shape, batch_size, shuffle, cache_file,
+                               prefetch=True, repeat=False):
+    """
+    Create a dataset where each sample has all antennas as channels.
+    This is the preferred approach for processing CSI data.
+    
+    Args:
+        csi_matrix_files: List of CSI data files
+        labels: List of corresponding labels
+        input_shape: Expected shape of the model input (without batch dimension)
+        batch_size: Batch size for training/inference
+        shuffle: Whether to shuffle the dataset
+        cache_file: File to cache the dataset
+        prefetch: Whether to prefetch data
+        repeat: Whether to repeat the dataset
+        
+    Returns:
+        TensorFlow dataset
+    """
+    if len(csi_matrix_files) == 0:
+        print("Error: Empty dataset - no files to process!")
+        raise ValueError("Cannot create dataset with empty file list - please check your data paths and make sure files exist")
+        
+    print(f"Creating multi-channel dataset with {len(csi_matrix_files)} samples")
+    dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels))
+    
+    with tf.device('/cpu:0'):
+        # Clear existing cache if present
+        if cache_file and os.path.exists(cache_file):
+            try:
+                if os.path.isfile(cache_file):
+                    os.remove(cache_file)
+                elif os.path.isdir(cache_file):
+                    shutil.rmtree(cache_file)
+            except Exception as e:
+                print(f"Error clearing cache: {e}")
+
+        # Define the map function with proper error handling
+        def safe_load_data_multi_channel(csi_file, label):
+            try:
+                # Print more information about the tensors
+                file_path = csi_file.numpy().decode() if hasattr(csi_file, 'numpy') else str(csi_file)
+                label_value = label.numpy() if hasattr(label, 'numpy') else label
+                
+                print(f"Processing file: {file_path}")
+                print(f"Label: {label_value}")
+                
+                # Call the data loading function with explicit decoding of string tensor
+                data = tf.numpy_function(
+                    func=load_data_multi_channel,
+                    inp=[csi_file],
+                    Tout=tf.float32
+                )
+                
+                # Verify the returned data
+                print(f"Returned data shape: {data.shape}")
+                
+                # Check for all zeros as a heuristic for dummy data
+                if tf.reduce_all(tf.equal(data, 0)):
+                    print("WARNING: Data contains all zeros!")
+                    raise ValueError("Loaded data contains all zeros - potential dummy data detected")
+                    
+                return data, tf.squeeze(label)
+            except Exception as e:
+                print(f"Error in safe_load_data_multi_channel: {e}")
+                raise
+
+        # Apply mapping
+        dataset_csi = dataset_csi.map(
+            safe_load_data_multi_channel,
             num_parallel_calls=tf.data.AUTOTUNE
         )
         
