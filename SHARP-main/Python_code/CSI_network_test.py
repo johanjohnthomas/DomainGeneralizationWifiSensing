@@ -18,7 +18,9 @@ import numpy as np
 import pickle
 from sklearn.metrics import confusion_matrix
 import os
-from dataset_utility import create_dataset_single, expand_antennas, create_dataset_multi_channel, load_data_multi_channel
+from dataset_utility import (create_dataset_single, create_dataset_multi_channel, 
+                            expand_antennas, convert_to_number, convert_to_grouped_number,
+                            get_label_mappings)
 from tensorflow.keras.models import load_model
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 import tensorflow as tf
@@ -26,6 +28,7 @@ import hashlib
 import matplotlib.pyplot as plt
 import sys
 import gc
+from network_utility import *
 
 def find_label_mapping(name_base, model_dir=None):
     """
@@ -140,6 +143,8 @@ if __name__ == '__main__':
                                            '(default 1)', default=1, required=False, type=int)
     parser.add_argument('--model_dir', help='Directory containing the model and label mapping files', 
                        default=None, required=False)
+    parser.add_argument('--use_grouped_labels', help='Group activity labels by their base letter (e.g., E1, E2 -> E)', 
+                       action='store_true', default=True, required=False)
     args = parser.parse_args()
 
     print("\n" + "="*80)
@@ -195,6 +200,26 @@ if __name__ == '__main__':
         activities.append(lab_act)
     activities = np.asarray(activities)
 
+    # Print a message about the label grouping configuration
+    if args.use_grouped_labels:
+        print("\nUsing GROUPED activity labels: Activities with the same base letter (e.g., E, E1, E2) will be treated as the same class")
+        print("For example, E1 and E2 will both be classified as E")
+        
+        # Create the csi_label_dict
+        csi_label_dict = list(activities)
+        
+        # Get both the original and grouped mappings
+        original_mapping, grouped_mapping = get_label_mappings(csi_label_dict)
+        
+        # Show the grouping that will occur
+        print("\nActivity label grouping:")
+        base_letters = set(label[0] for label in csi_label_dict)
+        for base in sorted(base_letters):
+            grouped_labels = [label for label in csi_label_dict if label.startswith(base)]
+            print(f"  {base}: {', '.join(grouped_labels)}")
+    else:
+        print("\nUsing ORIGINAL activity labels: Each activity (E, E1, E2, etc.) will be treated as a separate class")
+
     # Create a lookup table for real activity names
     activity_name_lookup = {}
     for i, activity in enumerate(activities):
@@ -247,6 +272,25 @@ if __name__ == '__main__':
         try:
             with open(name_labels, "rb") as fp:
                 current_labels = pickle.load(fp)
+                
+                # Apply label grouping if enabled
+                if args.use_grouped_labels:
+                    # Convert loaded numeric labels back to their string representation
+                    # then apply grouping
+                    str_labels = []
+                    for label_num in current_labels:
+                        # Look up the original activity label for this numeric index
+                        for idx, act_label in enumerate(csi_label_dict):
+                            if idx == label_num:
+                                # Apply grouping by extracting the base letter
+                                base_letter = act_label[0]
+                                # Find the index of the first activity with this base letter
+                                for base_idx, activity in enumerate(csi_label_dict):
+                                    if activity.startswith(base_letter):
+                                        str_labels.append(base_idx)
+                                        break
+                                break
+                    current_labels = str_labels
                 
                 # Ensure all labels are simple types (int, str) for compatibility
                 current_labels = [int(label) if isinstance(label, (int, float, np.integer)) 

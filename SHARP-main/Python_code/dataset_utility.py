@@ -21,9 +21,53 @@ import shutil
 
 tf.random.set_seed(42)
 def convert_to_number(lab, csi_label_dict):
+    """
+    Maps a label to its corresponding index in the csi_label_dict.
+    In the original implementation, each label (E, E1, E2, etc.) has its own unique index.
+    """
     lab_num = np.argwhere(np.asarray(csi_label_dict) == lab)[0][0]
     return int(lab_num)
 
+def convert_to_grouped_number(lab, csi_label_dict):
+    """
+    Groups activity labels by their base letter.
+    For example, 'E', 'E1', 'E2' will all map to the same index (the index of 'E').
+    If the base letter doesn't exist in csi_label_dict, it falls back to the original mapping.
+    
+    Args:
+        lab: The activity label to convert (e.g., 'E1', 'J2')
+        csi_label_dict: List of all possible activity labels
+    
+    Returns:
+        int: The index corresponding to the base letter of the activity
+    """
+    # Extract the base letter (first character) from the label
+    base_letter = lab[0] if len(lab) > 0 else lab
+    
+    # Look for the base letter in the label dictionary
+    base_indices = np.where(np.array([label.startswith(base_letter) for label in csi_label_dict]))[0]
+    
+    if len(base_indices) > 0:
+        # Return the first occurrence of the base letter or a label starting with it
+        return int(base_indices[0])
+    else:
+        # Fallback to original mapping if base letter not found
+        return convert_to_number(lab, csi_label_dict)
+
+def get_label_mappings(csi_label_dict):
+    """
+    Returns mappings from original labels to both original and grouped indices.
+    
+    Args:
+        csi_label_dict: List of all possible activity labels
+    
+    Returns:
+        tuple: (original_mapping, grouped_mapping) where each is a dict mapping labels to indices
+    """
+    original_mapping = {label: convert_to_number(label, csi_label_dict) for label in csi_label_dict}
+    grouped_mapping = {label: convert_to_grouped_number(label, csi_label_dict) for label in csi_label_dict}
+    
+    return original_mapping, grouped_mapping
 
 def create_windows(csi_list, labels_list, sample_length, stride_length):
     csi_matrix_stride = []

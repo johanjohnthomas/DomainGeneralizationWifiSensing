@@ -18,7 +18,7 @@ import glob
 import os
 import numpy as np
 import pickle
-from dataset_utility import create_windows_antennas, convert_to_number
+from dataset_utility import create_windows_antennas, convert_to_number, convert_to_grouped_number
 import shutil
 
 
@@ -100,7 +100,7 @@ if __name__ == '__main__':
 
             print(name)
 
-            label = convert_to_number(label, csi_label_dict)
+            label = convert_to_grouped_number(label, csi_label_dict)
             if i_name % n_tot == 0:
                 prev_label = label
             elif label != prev_label:

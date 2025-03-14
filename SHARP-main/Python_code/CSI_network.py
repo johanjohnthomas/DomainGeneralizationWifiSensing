@@ -18,7 +18,10 @@ import numpy as np
 import pickle
 from sklearn.metrics import confusion_matrix
 import os
-from dataset_utility import create_dataset_single, expand_antennas
+from dataset_utility import (create_dataset, create_dataset_randomized_antennas, 
+                              create_dataset_single, create_dataset_multi_channel,
+                              expand_antennas, convert_to_number, convert_to_grouped_number, 
+                              get_label_mappings)
 from network_utility import *
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 from sklearn.utils.class_weight import compute_class_weight
@@ -28,6 +31,8 @@ import shutil
 import hashlib
 import sys
 import time
+import tensorflow as tf
+from tensorflow.keras.models import load_model
 
 """
 IMPORTANT ARCHITECTURAL NOTE:
@@ -56,7 +61,6 @@ os.environ['TF_DETERMINISTIC_OPS'] = '1'  # For reproducibility
 os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'  # Better GPU mem management
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0' 
 # Now import TensorFlow
-import tensorflow as tf
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
     try:
@@ -162,6 +166,8 @@ if __name__ == '__main__':
                                             '(default 80)', default=80, required=False, type=int)
     parser.add_argument('--sub_band', help='Sub_band idx in [1, 2, 3, 4] for 20 MHz, [1, 2] for 40 MHz '
                                            '(default 1)', default=1, required=False, type=int)
+    parser.add_argument('--use_grouped_labels', help='Group activity labels by their base letter (e.g., E1, E2 -> E)', 
+                       action='store_true', default=True, required=False)
     args = parser.parse_args()
     
     gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -171,10 +177,28 @@ if __name__ == '__main__':
     sub_band = args.sub_band
 
     csi_act = args.activities
-    activities = []
+    csi_label_dict = []
     for lab_act in csi_act.split(','):
-        activities.append(lab_act)
-    activities = np.asarray(activities)
+        csi_label_dict.append(lab_act)
+
+    # Print a message about the label grouping configuration
+    if args.use_grouped_labels:
+        print("\nUsing GROUPED activity labels: Activities with the same base letter (e.g., E, E1, E2) will be treated as the same class")
+        print("For example, E1 and E2 will both be classified as E")
+        
+        # Get both the original and grouped mappings
+        original_mapping, grouped_mapping = get_label_mappings(csi_label_dict)
+        
+        # Show the grouping that will occur
+        print("\nActivity label grouping:")
+        base_letters = set(label[0] for label in csi_label_dict)
+        for base in sorted(base_letters):
+            grouped_labels = [label for label in csi_label_dict if label.startswith(base)]
+            print(f"  {base}: {', '.join(grouped_labels)}")
+    else:
+        print("\nUsing ORIGINAL activity labels: Each activity (E, E1, E2, etc.) will be treated as a separate class")
+        
+    activities = np.asarray(csi_label_dict)
     
     name_base = args.name_base
     cache_prefix = f"{name_base}_{csi_act.replace(',','_')}"
@@ -225,6 +249,25 @@ if __name__ == '__main__':
         name_labels = args.dir + sdir + '/labels_train_antennas_' + str(csi_act) + suffix
         with open(name_labels, "rb") as fp:  # Unpickling
             domain_labels = pickle.load(fp)
+            
+            # Apply label grouping if enabled
+            if args.use_grouped_labels:
+                # Convert loaded numeric labels back to their string representation
+                # then apply grouping
+                str_labels = []
+                for label_num in domain_labels:
+                    # Look up the original activity label for this numeric index
+                    for idx, act_label in enumerate(csi_label_dict):
+                        if idx == label_num:
+                            # Apply grouping by extracting the base letter
+                            base_letter = act_label[0]
+                            # Find the index of the first activity with this base letter
+                            for base_idx, activity in enumerate(csi_label_dict):
+                                if activity.startswith(base_letter):
+                                    str_labels.append(base_idx)
+                                    break
+                            break
+                domain_labels = str_labels
         name_f = args.dir + sdir + '/files_train_antennas_' + str(csi_act) + suffix
         with open(name_f, "rb") as fp:  # Unpickling
             domain_files = pickle.load(fp)
@@ -237,6 +280,25 @@ if __name__ == '__main__':
         name_labels = args.dir + sdir + '/labels_val_antennas_' + str(csi_act) + suffix
         with open(name_labels, "rb") as fp:  # Unpickling
             domain_labels = pickle.load(fp)
+            
+            # Apply label grouping if enabled
+            if args.use_grouped_labels:
+                # Convert loaded numeric labels back to their string representation
+                # then apply grouping
+                str_labels = []
+                for label_num in domain_labels:
+                    # Look up the original activity label for this numeric index
+                    for idx, act_label in enumerate(csi_label_dict):
+                        if idx == label_num:
+                            # Apply grouping by extracting the base letter
+                            base_letter = act_label[0]
+                            # Find the index of the first activity with this base letter
+                            for base_idx, activity in enumerate(csi_label_dict):
+                                if activity.startswith(base_letter):
+                                    str_labels.append(base_idx)
+                                    break
+                            break
+                domain_labels = str_labels
         name_f = args.dir + sdir + '/files_val_antennas_' + str(csi_act) + suffix
         with open(name_f, "rb") as fp:  # Unpickling
             domain_files = pickle.load(fp)
@@ -249,6 +311,25 @@ if __name__ == '__main__':
         name_labels = args.dir + sdir + '/labels_test_antennas_' + str(csi_act) + suffix
         with open(name_labels, "rb") as fp:  # Unpickling
             domain_labels = pickle.load(fp)
+            
+            # Apply label grouping if enabled
+            if args.use_grouped_labels:
+                # Convert loaded numeric labels back to their string representation
+                # then apply grouping
+                str_labels = []
+                for label_num in domain_labels:
+                    # Look up the original activity label for this numeric index
+                    for idx, act_label in enumerate(csi_label_dict):
+                        if idx == label_num:
+                            # Apply grouping by extracting the base letter
+                            base_letter = act_label[0]
+                            # Find the index of the first activity with this base letter
+                            for base_idx, activity in enumerate(csi_label_dict):
+                                if activity.startswith(base_letter):
+                                    str_labels.append(base_idx)
+                                    break
+                            break
+                domain_labels = str_labels
         name_f = args.dir + sdir + '/files_test_antennas_' + str(csi_act) + suffix
         with open(name_f, "rb") as fp:  # Unpickling
             domain_files = pickle.load(fp)
