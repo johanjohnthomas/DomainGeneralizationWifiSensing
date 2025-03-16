@@ -18,6 +18,10 @@ import pickle
 import tensorflow as tf
 import os
 import shutil
+import math
+import hashlib
+import time
+from datetime import datetime
 
 tf.random.set_seed(42)
 def convert_to_number(lab, csi_label_dict):
@@ -120,8 +124,48 @@ def load_data(csi_file_t):
     return matrix_csi
 
 
+def generate_dynamic_cache_filename(cache_base, csi_matrix_files, cache_version=None):
+    """
+    Generate a unique cache filename based on dataset properties and timestamps.
+    
+    Args:
+        cache_base: Base name for the cache file
+        csi_matrix_files: List of CSI matrix files that are being processed
+        cache_version: Optional version identifier for the cache
+        
+    Returns:
+        A unique cache filename that will change if the dataset changes
+    """
+    # Create a hash based on the dataset file list
+    if isinstance(csi_matrix_files, (list, tuple, np.ndarray)):
+        # Sort to ensure the same files always produce the same hash regardless of order
+        files_str = ''.join(sorted([os.path.basename(f) for f in csi_matrix_files]))
+        files_hash = hashlib.md5(files_str.encode()).hexdigest()[:10]
+    else:
+        # For non-list inputs, use a hash of the string representation
+        files_hash = hashlib.md5(str(csi_matrix_files).encode()).hexdigest()[:10]
+    
+    # Add dataset size information
+    dataset_size = len(csi_matrix_files) if isinstance(csi_matrix_files, (list, tuple, np.ndarray)) else 0
+    
+    # Add timestamp information (can be commented out if you want only content-based hashing)
+    timestamp = datetime.now().strftime("%Y%m%d")
+    
+    # Combine components to form the cache filename
+    if cache_version:
+        cache_filename = f"{cache_base}_v{cache_version}_{dataset_size}_{files_hash}_{timestamp}"
+    else:
+        cache_filename = f"{cache_base}_{dataset_size}_{files_hash}_{timestamp}"
+    
+    return cache_filename
+
+
 def create_dataset(csi_matrix_files, labels_stride, input_shape, batch_size, shuffle, cache_file, prefetch=True,
                    repeat=True):
+    # Use dynamic cache filename if cache_file is provided
+    if cache_file:
+        cache_file = generate_dynamic_cache_filename(cache_file, csi_matrix_files)
+    
     dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels_stride))
     py_funct = lambda csi_file, label: (tf.ensure_shape(tf.numpy_function(load_data, [csi_file], tf.float32),
                                                         input_shape), label)
@@ -145,6 +189,10 @@ def randomize_antennas(csi_data):
 
 def create_dataset_randomized_antennas(csi_matrix_files, labels_stride, input_shape, batch_size, shuffle, cache_file,
                                        prefetch=True, repeat=True):
+    # Use dynamic cache filename if cache_file is provided
+    if cache_file:
+        cache_file = generate_dynamic_cache_filename(cache_file, csi_matrix_files)
+    
     dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels_stride))
     py_funct = lambda csi_file, label: (tf.ensure_shape(tf.numpy_function(load_data, [csi_file], tf.float32),
                                                         input_shape), label)
@@ -256,9 +304,10 @@ def load_data_multi_channel(csi_file_t):
         print(f"  - After transpose shape: {matrix_csi_multi.shape}")
         
         # STEP 2: Mean normalization across antennas (axis=2)
-        print(f"  STEP 2: Mean normalization across antennas")
-        mean = np.mean(matrix_csi_multi, axis=2, keepdims=True)
-        matrix_csi_multi = matrix_csi_multi - mean
+        print(f"  STEP 2: Mean and standard deviation normalization")
+        mean = np.mean(matrix_csi_multi, axis=(0,1), keepdims=True)  # Global mean
+        std = np.std(matrix_csi_multi, axis=(0,1), keepdims=True)
+        matrix_csi_multi = (matrix_csi_multi - mean) / (std + 1e-9)
         print(f"  - After normalization shape: {matrix_csi_multi.shape}")
         print(f"  - After normalization min/max: {np.min(matrix_csi_multi)}/{np.max(matrix_csi_multi)}")
         
@@ -274,6 +323,10 @@ def load_data_multi_channel(csi_file_t):
 
 def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_shape, batch_size, shuffle, cache_file,
                           prefetch=True, repeat=False):
+    # Use dynamic cache filename if cache_file is provided
+    if cache_file:
+        cache_file = generate_dynamic_cache_filename(cache_file, csi_matrix_files)
+    
     if len(csi_matrix_files) == 0:
         print("Error: Empty dataset - no files to process!")
         raise ValueError("Cannot create dataset with empty file list - please check your data paths and make sure files exist")
@@ -365,6 +418,10 @@ def create_dataset_multi_channel(csi_matrix_files, labels, input_shape, batch_si
     Returns:
         A tf.data.Dataset instance
     """
+    # Use dynamic cache filename if cache_file is provided
+    if cache_file:
+        cache_file = generate_dynamic_cache_filename(cache_file, csi_matrix_files)
+    
     # Define a function to load and preprocess a single file
     def load_and_process_file(file_path, label):
         def _parse_function(file_path, label):
@@ -375,6 +432,11 @@ def create_dataset_multi_channel(csi_matrix_files, labels, input_shape, batch_si
             # Transpose to get (feature_length, sample_length, num_antennas)
             # From (num_antennas, sample_length, feature_length) to (feature_length, sample_length, num_antennas)
             csi_matrix = np.transpose(csi_matrix, (2, 1, 0))
+            
+            # Add mean and standard deviation normalization
+            mean = np.mean(csi_matrix, axis=(0,1), keepdims=True)  # Global mean
+            std = np.std(csi_matrix, axis=(0,1), keepdims=True)
+            csi_matrix = (csi_matrix - mean) / (std + 1e-9)
             
             return csi_matrix, label
         

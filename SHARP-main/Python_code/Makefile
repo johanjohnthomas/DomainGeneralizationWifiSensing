@@ -15,6 +15,10 @@ BATCH_SIZE = 16  # Number of samples in a batch
 NAME_BASE = single_ant.keras   # Name prefix for the files
 ACTIVITIES = C,C1,C2,E,E1,E2,H,H1,H2,J,J1,J2,J3,L,L1,L2,L3,R,R1,R2,S,W,W1,W2  # Activities to be considered
 NUM_TOT = 4
+# Undersampling parameters
+ENABLE_UNDERSAMPLE = --undersample  # Set to empty string to disable
+UNDERSAMPLE_RATIO = 1.0  # 1.0 = fully balanced, 0.0 = no balancing
+
 # Define the commands for each step
 PREPROCESS_CMD = for subdir in $(INPUT_DIR)AR-*; do \
     dir_name=$$(basename "$$subdir"); \
@@ -29,7 +33,7 @@ SUBDIRS_DOPPLER = AR7a_J3,AR8a_J2,AR9a_J2,AR3a_R,AR6a_W2,AR8b_L1,AR1a_S,AR8b_J2,
 DOPPLER_CMD = python CSI_doppler_computation.py $(OUTPUT_DIR) "$(SUBDIRS_DOPPLER)" $(DOPPLER_DIR) 800 800 $(SAMPLE_LENGTH) $(SLIDING) $(NOISE_LEVEL)
 CREATE_DATASET_TRAIN_CMD = python CSI_doppler_create_dataset_train.py $(DOPPLER_DIR) $(SUBDIRS_TRAIN) $(SAMPLE_LENGTH) $(SLIDING) $(WINDOWS_LENGTH) $(STRIDE_LENGTHS) $(ACTIVITIES) 4
 CREATE_DATASET_TEST_CMD = python CSI_doppler_create_dataset_test.py $(DOPPLER_DIR) $(SUBDIRS_TEST) $(SAMPLE_LENGTH) $(SLIDING) $(WINDOWS_LENGTH) $(STRIDE_LENGTHS) $(ACTIVITIES) 4
-TRAIN_CMD = python CSI_network.py $(DOPPLER_DIR) $(SUBDIRS_TRAIN) $(FEATURE_LENGTH) $(WINDOWS_LENGTH) 1 $(BATCH_SIZE) $(NUM_TOT) $(NAME_BASE) $(ACTIVITIES)
+TRAIN_CMD = python CSI_network.py $(DOPPLER_DIR) $(SUBDIRS_TRAIN) $(FEATURE_LENGTH) $(WINDOWS_LENGTH) 1 $(BATCH_SIZE) $(NUM_TOT) $(NAME_BASE) $(ACTIVITIES) $(ENABLE_UNDERSAMPLE) --undersample_ratio=$(UNDERSAMPLE_RATIO)
 TEST_CMD = python CSI_network_test.py $(DOPPLER_DIR) $(SUBDIRS_TEST) $(FEATURE_LENGTH) $(WINDOWS_LENGTH) 1 $(BATCH_SIZE) $(NUM_TOT) $(NAME_BASE) $(ACTIVITIES)
 
 AR1d=AR1d_C1,AR1d_C2,AR1d_E,AR1d_H,AR1d_J,AR1d_L,AR1d_R,AR1d_S,AR1d_W
@@ -77,8 +81,69 @@ data_processing:
 run_nn:
 	$(TRAIN_CMD)
 	$(TEST_CMD)
+
+# Toggle undersampling on/off
+enable_undersampling:
+	$(eval ENABLE_UNDERSAMPLE = --undersample)
+	@echo "Undersampling enabled with ratio $(UNDERSAMPLE_RATIO)"
+
+disable_undersampling:
+	$(eval ENABLE_UNDERSAMPLE = )
+	@echo "Undersampling disabled"
+
+# Set undersampling ratio
+set_undersample_ratio_full:
+	$(eval UNDERSAMPLE_RATIO = 1.0)
+	@echo "Undersampling ratio set to full balance (1.0)"
+
+set_undersample_ratio_partial:
+	$(eval UNDERSAMPLE_RATIO = 0.7)
+	@echo "Undersampling ratio set to partial balance (0.7)"
+
+set_undersample_ratio_minimal:
+	$(eval UNDERSAMPLE_RATIO = 0.3)
+	@echo "Undersampling ratio set to minimal balance (0.3)"
+
+# Run with undersampling
+run_nn_with_undersampling: enable_undersampling
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
+run_nn_with_partial_undersampling: enable_undersampling set_undersample_ratio_partial
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
 # Define the targets for each variation
 no_unseen_domains:
+	$(eval SUBDIRS_TRAIN = AR1a_S,AR1b_E,AR3a_R,AR5a_C,AR7a_J1)
+	$(eval SUBDIRS_TEST = AR1d_S,AR1e_E,AR2a_J1,AR5b_R,AR1c_C,)
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
+# Version with directory-level split to prevent data leakage
+no_unseen_domains_directory_split:
+	$(eval TRAIN_SUBDIRS = AR1a_S,AR1b_E,AR1c_C,AR3a_R,AR4a_R)
+	$(eval VAL_SUBDIRS = AR5a_C,AR6a_E)
+	$(eval TEST_SUBDIRS = AR7a_J1,AR8a_E1,AR9a_J1,AR9b_J1)
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD) --train_subdirs=$(TRAIN_SUBDIRS) --val_subdirs=$(VAL_SUBDIRS) --test_subdirs=$(TEST_SUBDIRS) --split_mode=directory
+	$(TEST_CMD) --test_subdirs=$(TEST_SUBDIRS)
+
+# Version with undersampling and directory-level split to prevent data leakage
+no_unseen_domains_directory_split_undersampled: enable_undersampling
+	$(eval TRAIN_SUBDIRS = AR1a_S,AR1b_E,AR1c_C,AR3a_R,AR4a_R)
+	$(eval VAL_SUBDIRS = AR5a_C,AR6a_E)
+	$(eval TEST_SUBDIRS = AR7a_J1,AR8a_E1,AR9a_J1,AR9b_J1)
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD) --train_subdirs=$(TRAIN_SUBDIRS) --val_subdirs=$(VAL_SUBDIRS) --test_subdirs=$(TEST_SUBDIRS) --split_mode=directory
+	$(TEST_CMD) --test_subdirs=$(TEST_SUBDIRS)
+
+# Version with undersampling
+no_unseen_domains_undersampled: enable_undersampling
 	$(eval SUBDIRS_TRAIN = AR1a_S,AR1b_E,AR1c_C,AR3a_R,AR4a_R,AR5a_C,AR6a_E,AR7a_J1,AR8a_E1,AR9a_J1,AR9b_J1)
 	$(eval SUBDIRS_TEST = AR1d_S,AR1e_E,AR2a_J1,AR5b_R,AR8b_E1,AR9c_J1)
 	$(CREATE_DATASET_TRAIN_CMD)
@@ -94,7 +159,35 @@ one_unseen_domain_bedroom_hidden:
 	$(TRAIN_CMD)
 	$(TEST_CMD)
 
+# Directory-level split version to prevent data leakage
+one_unseen_domain_bedroom_hidden_directory_split:
+	$(eval TRAIN_SUBDIRS = $(laboratory),$(office),$(semi_anechoic_chamber))
+	$(eval VAL_SUBDIRS = $(kitchen))
+	$(eval TEST_SUBDIRS = $(living_room),$(bedroom))
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD) --train_subdirs=$(TRAIN_SUBDIRS) --val_subdirs=$(VAL_SUBDIRS) --test_subdirs=$(TEST_SUBDIRS) --split_mode=directory
+	$(TEST_CMD) --test_subdirs=$(TEST_SUBDIRS)
+
+# Version with undersampling
+one_unseen_domain_bedroom_hidden_undersampled: enable_undersampling
+	$(eval SUBDIRS_TRAIN = $(living_room),$(kitchen),$(laboratory),$(office),$(semi_anechoic_chamber))
+	$(eval SUBDIRS_TEST = $(bedroom))
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
 one_unseen_domain_living_room_hidden:
+	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(office),$(semi_anechoic_chamber))
+	$(eval SUBDIRS_TEST = $(living_room))
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
+# Version with undersampling
+one_unseen_domain_living_room_hidden_undersampled: enable_undersampling
 	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(office),$(semi_anechoic_chamber))
 	$(eval SUBDIRS_TEST = $(living_room))
 	$(CREATE_DATASET_TRAIN_CMD)
@@ -110,7 +203,25 @@ one_unseen_domain_kitchen_hidden:
 	$(TRAIN_CMD)
 	$(TEST_CMD)
 
+# Version with undersampling
+one_unseen_domain_kitchen_hidden_undersampled: enable_undersampling
+	$(eval SUBDIRS_TRAIN = $(bedroom),$(living_room),$(laboratory),$(office),$(semi_anechoic_chamber))
+	$(eval SUBDIRS_TEST = $(kitchen))
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
 one_unseen_domain_laboratory_hidden:
+	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(living_room),$(office),$(semi_anechoic_chamber))
+	$(eval SUBDIRS_TEST = $(laboratory))
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
+# Version with undersampling
+one_unseen_domain_laboratory_hidden_undersampled: enable_undersampling
 	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(living_room),$(office),$(semi_anechoic_chamber))
 	$(eval SUBDIRS_TEST = $(laboratory))
 	$(CREATE_DATASET_TRAIN_CMD)
@@ -126,7 +237,25 @@ one_unseen_domain_office_hidden:
 	$(TRAIN_CMD)
 	$(TEST_CMD)
 
+# Version with undersampling
+one_unseen_domain_office_hidden_undersampled: enable_undersampling
+	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(living_room),$(semi_anechoic_chamber))
+	$(eval SUBDIRS_TEST = $(office))
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
 one_unseen_domain_semi_anechoic_chamber_hidden:
+	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(office),$(living_room))
+	$(eval SUBDIRS_TEST = $(semi_anechoic_chamber))
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
+# Version with undersampling
+one_unseen_domain_semi_anechoic_chamber_hidden_undersampled: enable_undersampling
 	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(office),$(living_room))
 	$(eval SUBDIRS_TEST = $(semi_anechoic_chamber))
 	$(CREATE_DATASET_TRAIN_CMD)
@@ -142,7 +271,25 @@ multiple_unseen_domains_bedroom_and_semi_anechoic_chamber_hidden:
 	$(TRAIN_CMD)
 	$(TEST_CMD)
 
+# Version with undersampling
+multiple_unseen_domains_bedroom_and_semi_anechoic_chamber_hidden_undersampled: enable_undersampling
+	$(eval SUBDIRS_TRAIN = $(living_room),$(kitchen),$(laboratory),$(office),)
+	$(eval SUBDIRS_TEST = $(bedroom),$(semi_anechoic_chamber))
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
 multiple_unseen_domains_kitchen_and_laboratory_hidden:
+	$(eval SUBDIRS_TRAIN = $(bedroom),$(living_room),$(office),$(semi_anechoic_chamber))
+	$(eval SUBDIRS_TEST = $(kitchen),$(laboratory))
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
+# Version with undersampling
+multiple_unseen_domains_kitchen_and_laboratory_hidden_undersampled: enable_undersampling
 	$(eval SUBDIRS_TRAIN = $(bedroom),$(living_room),$(office),$(semi_anechoic_chamber))
 	$(eval SUBDIRS_TEST = $(kitchen),$(laboratory))
 	$(CREATE_DATASET_TRAIN_CMD)
@@ -158,7 +305,25 @@ multiple_unseen_domains_living_room_and_office_hidden:
 	$(TRAIN_CMD)
 	$(TEST_CMD)
 
+# Version with undersampling
+multiple_unseen_domains_living_room_and_office_hidden_undersampled: enable_undersampling
+	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(semi_anechoic_chamber))
+	$(eval SUBDIRS_TEST = $(living_room),$(office))
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
 multiple_unseen_domains_office_bedroom_and_semi_anechoic_chamber_hidden:
+	$(eval SUBDIRS_TRAIN = $(living_room),$(kitchen),$(laboratory))
+	$(eval SUBDIRS_TEST = $(office),$(bedroom),$(semi_anechoic_chamber))
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
+# Version with undersampling
+multiple_unseen_domains_office_bedroom_and_semi_anechoic_chamber_hidden_undersampled: enable_undersampling
 	$(eval SUBDIRS_TRAIN = $(living_room),$(kitchen),$(laboratory))
 	$(eval SUBDIRS_TEST = $(office),$(bedroom),$(semi_anechoic_chamber))
 	$(CREATE_DATASET_TRAIN_CMD)
@@ -174,6 +339,14 @@ multiple_unseen_domains_living_room_kitchen_and_laboratory_hidden:
 	$(TRAIN_CMD)
 	$(TEST_CMD)
 
+# Version with undersampling
+multiple_unseen_domains_living_room_kitchen_and_laboratory_hidden_undersampled: enable_undersampling
+	$(eval SUBDIRS_TRAIN = $(bedroom),$(office),$(semi_anechoic_chamber))
+	$(eval SUBDIRS_TEST = $(living_room),$(kitchen),$(laboratory))
+	$(CREATE_DATASET_TRAIN_CMD)
+	$(CREATE_DATASET_TEST_CMD)
+	$(TRAIN_CMD)
+	$(TEST_CMD)
 
 all: data_processing all_tests
 all_tests: 
@@ -182,3 +355,24 @@ all_tests:
 	 one_unseen_domain_semi_anechoic_chamber_hidden multiple_unseen_domains_bedroom_and_semi_anechoic_chamber_hidden \
 	 multiple_unseen_domains_equivalent_data_kitchen_laboratory_hidden \
 	 multiple_unseen_domains_equivalent_data_kitchen_laboratory_hidden_test2
+
+# Run all tests with undersampling enabled
+all_tests_undersampled: enable_undersampling
+	 no_unseen_domains one_unseen_domain_bedroom_hidden one_unseen_domain_living_room_hidden \
+	 one_unseen_domain_kitchen_hidden one_unseen_domain_laboratory_hidden one_unseen_domain_office_hidden \
+	 one_unseen_domain_semi_anechoic_chamber_hidden multiple_unseen_domains_bedroom_and_semi_anechoic_chamber_hidden \
+	 multiple_unseen_domains_equivalent_data_kitchen_laboratory_hidden \
+	 multiple_unseen_domains_equivalent_data_kitchen_laboratory_hidden_test2
+
+# Run individual test scenarios with different undersampling ratios
+run_with_full_undersampling: set_undersample_ratio_full enable_undersampling
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
+run_with_partial_undersampling: set_undersample_ratio_partial enable_undersampling
+	$(TRAIN_CMD)
+	$(TEST_CMD)
+
+run_with_minimal_undersampling: set_undersample_ratio_minimal enable_undersampling
+	$(TRAIN_CMD)
+	$(TEST_CMD)

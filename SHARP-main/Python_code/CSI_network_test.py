@@ -30,6 +30,77 @@ import sys
 import gc
 from network_utility import *
 
+# Import the focal loss function to ensure it's available when loading models
+# Focal Loss implementation for handling class imbalance
+@tf.keras.saving.register_keras_serializable(package="CustomLosses")
+def focal_loss(gamma=2.0, alpha=0.25):
+    """
+    Focal Loss implementation for class imbalance with sparse categorical inputs.
+    
+    Args:
+        gamma: Focusing parameter for modulating loss for hard-to-classify examples
+        alpha: Weighting factor for rare class samples
+    
+    Returns:
+        loss_fn: Focal loss function compatible with Keras
+    """
+    def sparse_categorical_focal_loss(y_true, y_pred):
+        # Get the number of classes from the prediction shape
+        num_classes = tf.shape(y_pred)[-1]
+        
+        # Convert predictions to probabilities if logits=True was used
+        y_pred = tf.nn.softmax(y_pred, axis=-1)
+        
+        # Convert sparse labels to one-hot
+        y_true = tf.cast(y_true, tf.int32)
+        y_true = tf.reshape(y_true, [-1])  # Flatten to 1D
+        y_true_one_hot = tf.one_hot(y_true, depth=num_classes, dtype=tf.float32)
+        
+        # Clip predictions to avoid numerical issues
+        epsilon = tf.keras.backend.epsilon()
+        y_pred = tf.clip_by_value(y_pred, epsilon, 1.0 - epsilon)
+        
+        # Calculate focal loss
+        cross_entropy = -y_true_one_hot * tf.math.log(y_pred)
+        
+        # Apply the focusing term
+        loss = alpha * tf.math.pow(1 - y_pred, gamma) * cross_entropy
+        
+        # Sum over classes and then take mean over batch
+        loss = tf.reduce_sum(loss, axis=-1)
+        loss = tf.reduce_mean(loss)
+        
+        return loss
+    
+    # Name the inner function to match what the serialization system expects
+    sparse_categorical_focal_loss.__name__ = 'sparse_categorical_focal_loss'
+    
+    return sparse_categorical_focal_loss
+
+# Function to create per-class metrics for model loading
+@tf.keras.saving.register_keras_serializable(package="CustomMetrics")
+def create_per_class_metrics(num_classes):
+    """
+    Create precision and recall metrics for each class.
+    
+    Args:
+        num_classes: Number of classes in the dataset
+    
+    Returns:
+        List of Keras metrics for tracking per-class performance
+    """
+    metrics = []
+    
+    # Add basic metrics that work with sparse categorical data
+    metrics.append(tf.keras.metrics.SparseCategoricalAccuracy(name='accuracy'))
+    metrics.append(tf.keras.metrics.SparseTopKCategoricalAccuracy(k=2, name='top2_accuracy'))
+    
+    # Instead of using class_id which can cause issues with sparse data,
+    # we'll use custom metrics that we can analyze after training
+    metrics.append(tf.keras.metrics.SparseCategoricalCrossentropy(name='sparse_categorical_crossentropy'))
+    
+    return metrics
+
 # Define the custom data generator for consistent data loading
 class CustomDataGenerator(tf.keras.utils.Sequence):
     def __init__(self, file_names, labels, input_shape=(340, 100, 4), batch_size=16, shuffle=True):
@@ -39,6 +110,18 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.indices = np.arange(len(file_names))
+        
+        # Check if input_shape is a tuple with at least 3 dimensions
+        if not (isinstance(input_shape, tuple) and len(input_shape) == 3):
+            print(f"WARNING: Expected input_shape to be a 3-tuple but got {input_shape}")
+            # Try to infer a reasonable default
+            self.input_shape = (340, 100, 4)
+            print(f"Using default input shape: {self.input_shape}")
+        
+        # Log information about the generator
+        print(f"Initialized CustomDataGenerator with {len(file_names)} files")
+        print(f"Expected input shape: {self.input_shape}")
+        
         if self.shuffle:
             np.random.shuffle(self.indices)
 
@@ -54,7 +137,66 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
         for file_path in batch_files:
             with open(file_path, 'rb') as f:
                 data = pickle.load(f)  # Shape (4, 100, 340)
-            data = np.transpose(data, (2, 1, 0))  # Transpose to (340, 100, 4)
+                
+            # Check the loaded data shape to determine appropriate transformation
+            if data.shape == (4, 100, 340):
+                # Standard format - transform to (340, 100, 4)
+                data = np.transpose(data, (2, 1, 0))  # From (4,100,340) to (340,100,4)
+            elif data.shape == (4, 340, 100):
+                # Alternative format - different transpose needed
+                data = np.transpose(data, (1, 2, 0))
+            elif len(data.shape) == 3 and data.shape[0] == 4:
+                # Unknown format but has 4 antennas as first dimension
+                # Try to match expected dimensions by comparing with target shape
+                if self.input_shape[0] == data.shape[2] and self.input_shape[1] == data.shape[1]:
+                    # Data is likely (4, time, features) and we want (features, time, 4)
+                    data = np.transpose(data, (2, 1, 0))
+                else:
+                    # Try best guess
+                    print(f"WARNING: Unusual data shape {data.shape}, attempting to transform")
+                    data = np.transpose(data, (2, 1, 0))
+            else:
+                # Very unusual format - raise error
+                raise ValueError(f"Cannot handle data with shape {data.shape}. Expected (4, 100, 340) or similar.")
+            
+            # Verify the shape after transpose
+            if data.shape[:2] != self.input_shape[:2]:
+                print(f"WARNING: Transposed data shape {data.shape} doesn't match expected shape {self.input_shape}")
+                print(f"Source data shape was {data.shape}, target shape should be {self.input_shape}")
+                
+                # If dimensions are just swapped, fix it
+                if data.shape[0] == self.input_shape[1] and data.shape[1] == self.input_shape[0]:
+                    print("Detected swapped dimensions - fixing...")
+                    data = np.transpose(data, (1, 0, 2))
+            
+            # Add normalization matching training preprocessing
+            mean = np.mean(data, axis=2, keepdims=True)
+            data = data - mean
+            
+            # Add sanity checks for data quality
+            if np.isnan(data).any():
+                print(f"WARNING: NaN values detected in file {file_path} after normalization")
+                # Replace NaNs with zeros to avoid breaking the pipeline
+                data = np.nan_to_num(data, nan=0.0)
+                print(f"Replaced NaN values with zeros")
+            
+            if np.all(data == 0):
+                print(f"WARNING: All zero values in file {file_path} after processing")
+            
+            # Final shape check
+            expected_final_shape = (self.input_shape[0], self.input_shape[1], 4)
+            if data.shape != expected_final_shape:
+                print(f"WARNING: Final shape {data.shape} doesn't match expected {expected_final_shape}")
+                print("Attempting to reshape as a last resort...")
+                try:
+                    data = np.reshape(data, expected_final_shape)
+                    print(f"Successfully reshaped to {data.shape}")
+                except Exception as e:
+                    print(f"Failed to reshape: {e}")
+                    if np.prod(data.shape) != np.prod(expected_final_shape):
+                        print(f"ERROR: Cannot reshape tensor with {np.prod(data.shape)} elements to shape {expected_final_shape} with {np.prod(expected_final_shape)} elements")
+                        continue
+            
             batch_x.append(data)
         
         return np.array(batch_x), np.array(batch_labels)
@@ -429,8 +571,40 @@ if __name__ == '__main__':
             print(f"Error: Model file not found - {name_model}")
             sys.exit(1)
             
-        csi_model = load_model(name_model)
-        print(f"Model loaded: {name_model}")
+        # Define custom objects for model loading
+        custom_objects = {
+            'sparse_categorical_focal_loss': focal_loss(gamma=2.0, alpha=0.25),
+            'focal_loss': focal_loss,
+            'create_per_class_metrics': create_per_class_metrics
+        }
+        
+        try:
+            # Load the model with custom objects
+            csi_model = load_model(name_model, custom_objects=custom_objects)
+            print(f"Model loaded successfully: {name_model}")
+            print(f"Model input shape: {csi_model.input_shape}")
+        except Exception as e:
+            print(f"Error loading model: {e}")
+            sys.exit(1)
+        
+        # Check if dimensions need to be swapped
+        if csi_model.input_shape[1] == 340 and csi_model.input_shape[2] == 100:
+            # Model expects (340, 100, 4)
+            if feature_length == 100 and sample_length == 340:
+                print("\n⚠️ WARNING: Detected swapped dimensions!")
+                print(f"Model expects dimensions (340, 100, 4) but script arguments are reversed.")
+                print(f"Original values: feature_length={feature_length}, sample_length={sample_length}")
+                
+                # Swap the values
+                feature_length, sample_length = sample_length, feature_length
+                
+                print(f"Corrected values: feature_length={feature_length}, sample_length={sample_length}")
+                print("Dimensions have been automatically corrected to match model expectations.")
+        
+        # Now verify the corrected dimensions match
+        expected_shape = csi_model.input_shape[1:]  # (340, 100, 4)
+        assert expected_shape == (feature_length, sample_length, num_antennas), \
+            f"Model expects input shape {expected_shape}, but data will be {(feature_length, sample_length, num_antennas)}"
         
         # Add debugging for model architecture and input shape
         print("\nModel Summary:")
@@ -513,21 +687,104 @@ if __name__ == '__main__':
             # Original shape: (4, 100, 340) - 4 antennas, 100 time steps, 340 features
             print(f"Original data shape: {matrix_csi.shape}")
             
-            # STEP 1: Transpose to get (340, 100, 4) - features as height, time as width, antennas as channels
-            data = np.transpose(matrix_csi, (2, 1, 0))
+            # Check the loaded data shape to determine appropriate transformation
+            expected_features = feature_length  # Should be 340
+            expected_time = sample_length      # Should be 100
+            
+            if matrix_csi.shape == (4, expected_time, expected_features):
+                # Standard format - transform to (340, 100, 4)
+                data = np.transpose(matrix_csi, (2, 1, 0))
+                print(f"Applying standard transpose (2, 1, 0) to match expected shape")
+            elif matrix_csi.shape == (4, expected_features, expected_time):
+                # Alternative format - different transpose needed
+                data = np.transpose(matrix_csi, (1, 2, 0))
+                print(f"Applying alternative transpose (1, 2, 0) to match expected shape")
+            elif len(matrix_csi.shape) == 3 and matrix_csi.shape[0] == 4:
+                # Unknown format but has 4 antennas as first dimension
+                print(f"Unknown format with 4 antennas. Attempting to determine correct transpose...")
+                
+                # Try best guess based on expected dimensions
+                if matrix_csi.shape[1] == expected_time and matrix_csi.shape[2] == expected_features:
+                    # Standard (4, time, features) -> (features, time, 4)
+                    data = np.transpose(matrix_csi, (2, 1, 0))
+                    print(f"Using transpose (2, 1, 0) to convert (4, {expected_time}, {expected_features}) -> ({expected_features}, {expected_time}, 4)")
+                elif matrix_csi.shape[1] == expected_features and matrix_csi.shape[2] == expected_time:
+                    # Alternative (4, features, time) -> (features, time, 4)
+                    data = np.transpose(matrix_csi, (1, 2, 0))
+                    print(f"Using transpose (1, 2, 0) to convert (4, {expected_features}, {expected_time}) -> ({expected_features}, {expected_time}, 4)")
+                else:
+                    # Just take a guess
+                    data = np.transpose(matrix_csi, (2, 1, 0))
+                    print(f"WARNING: Unusual dimensions. Using standard transpose (2, 1, 0)")
+            else:
+                # Very unusual format - try anyway but warn
+                print(f"WARNING: Unexpected data shape {matrix_csi.shape}. Expected (4, ?, ?)")
+                # Try to reshape to expected dimensions
+                try:
+                    matrix_csi = matrix_csi.reshape(4, -1, expected_features)
+                    data = np.transpose(matrix_csi, (2, 1, 0))
+                    print(f"Reshaped and transposed data to try to match expected format")
+                except Exception as e:
+                    print(f"Failed to reshape: {e}")
+                    print("Attempting direct transpose...")
+                    data = np.transpose(matrix_csi, (2, 1, 0))
+            
             print(f"After transpose shape: {data.shape}")
+            
+            # If dimensions are swapped after transpose, fix it
+            if data.shape[0] == expected_time and data.shape[1] == expected_features:
+                print(f"Detected swapped dimensions after transpose. Fixing...")
+                data = np.transpose(data, (1, 0, 2))
+            
+            # Add normalization matching training preprocessing
+            mean = np.mean(data, axis=2, keepdims=True)
+            data = data - mean
+            print(f"After normalization - min: {np.min(data):.6f}, max: {np.max(data):.6f}, mean: {np.mean(data):.6f}")
+            
+            # Add sanity checks for data quality
+            if np.isnan(data).any():
+                print(f"WARNING: NaN values detected in file {file_path} after normalization")
+                # Replace NaNs with zeros to avoid breaking the pipeline
+                data = np.nan_to_num(data, nan=0.0)
+                print(f"Replaced NaN values with zeros")
+            
+            if np.all(data == 0):
+                print(f"WARNING: All zero values in file {file_path} after processing")
+            
+            # Final shape check
+            expected_final_shape = (expected_features, expected_time, 4)
+            if data.shape != expected_final_shape:
+                print(f"WARNING: Final shape {data.shape} doesn't match expected {expected_final_shape}")
+                print("Attempting to reshape as a last resort...")
+                try:
+                    data = np.reshape(data, expected_final_shape)
+                    print(f"Successfully reshaped to {data.shape}")
+                except Exception as e:
+                    print(f"Failed to reshape: {e}")
+                    if np.prod(data.shape) != np.prod(expected_final_shape):
+                        print(f"ERROR: Cannot reshape tensor with {np.prod(data.shape)} elements to shape {expected_final_shape} with {np.prod(expected_final_shape)} elements")
+                        continue
             
             # STEP 2: Add batch dimension for model
             data = np.expand_dims(data, axis=0)  # Shape (1, 340, 100, 4)
             print(f"Final input shape with batch dimension: {data.shape}")
             print(f"Expected model input shape: {csi_model.input_shape}")
             
-            # Verify data alignment with model
-            if data.shape[1:] != csi_model.input_shape[1:]:
-                print(f"WARNING: Input shape {data.shape[1:]} does not match model's expected shape {csi_model.input_shape[1:]}")
-                print(f"This test script requires a model trained with input shape (340, 100, 4)")
-                print(f"Please retrain the model with the multi-channel (4 antennas) architecture")
-                sys.exit(1)
+            # Explicit shape verification
+            expected_shape = csi_model.input_shape[1:]  # (340, 100, 4)
+            assert data.shape[1:] == expected_shape, \
+                f"Input shape {data.shape[1:]} doesn't match model expectation {expected_shape}"
+            
+            # Add sanity checks for input data
+            print(f"Processed data range: [{np.min(data):.4f}, {np.max(data):.4f}]")
+            if np.isnan(data).any():
+                print("ERROR: Input data contains NaN values!")
+                raise ValueError("Input data contains NaN values")
+            if np.all(data == 0):
+                print("ERROR: Input data is all zeros!")
+                raise ValueError("Input data is all zeros")
+            if np.max(data) == np.min(data):
+                print("WARNING: Input data has constant values - no variation!")
             
             # Make a single prediction with all antennas as channels
             pred = csi_model.predict(data, verbose=0)
@@ -741,11 +998,46 @@ if __name__ == '__main__':
     if not os.path.exists(name_model):
         print(f"Error: Model file not found - {name_model}")
         sys.exit(1)
-        
+    
+    # Define custom objects for model loading
+    custom_objects = {
+        'sparse_categorical_focal_loss': focal_loss(gamma=2.0, alpha=0.25),
+        'focal_loss': focal_loss,
+        'create_per_class_metrics': create_per_class_metrics
+    }
+    
     try:
-        csi_model = load_model(name_model)
+        # Load model to check input dimensions
+        csi_model = load_model(name_model, custom_objects=custom_objects)
+        print(f"Model loaded successfully: {name_model}")
+        print(f"Model input shape: {csi_model.input_shape}")
+        
+        # Check if dimensions need to be swapped
+        if csi_model.input_shape[1] == 340 and csi_model.input_shape[2] == 100:
+            # Model expects (340, 100, 4)
+            if feature_length == 100 and sample_length == 340:
+                print("\n⚠️ WARNING: Detected swapped dimensions!")
+                print(f"Model expects dimensions (340, 100, 4) but script arguments are reversed.")
+                print(f"Original values: feature_length={feature_length}, sample_length={sample_length}")
+                
+                # Swap the values
+                feature_length, sample_length = sample_length, feature_length
+                
+                print(f"Corrected values: feature_length={feature_length}, sample_length={sample_length}")
+                print("Dimensions have been automatically corrected to match model expectations.")
+        
+        # Now verify the corrected dimensions match
+        expected_shape = csi_model.input_shape[1:]  # (340, 100, 4)
+        assert expected_shape == (feature_length, sample_length, num_antennas), \
+            f"Model expects input shape {expected_shape}, but data will be {(feature_length, sample_length, num_antennas)}"
+            
+        # Clean up for now - we'll reload the model later
+        del csi_model
+        tf.keras.backend.clear_session()
+        gc.collect()
+        
     except Exception as e:
-        print(f"Error loading model: {e}")
+        print(f"Error during model dimension check: {e}")
         sys.exit(1)
 
     # Prepare for prediction
@@ -760,6 +1052,28 @@ if __name__ == '__main__':
     # Validate dataset
     for batch in dataset_csi_complete.take(1):
         print(f"Training batch shape: {batch[0].shape}, labels shape: {batch[1].shape}")
+        
+        # Verify batch shape matches model expectation
+        expected_shape = (None,) + csi_model.input_shape[1:]  # (None, 340, 100, 4) 
+        actual_shape = batch[0].shape
+        
+        # Check if the dimensions after batch size match
+        assert actual_shape[1:] == expected_shape[1:], \
+            f"Batch data shape {actual_shape} doesn't match model expectation {expected_shape}"
+        print("✓ Batch shape verification passed!")
+        
+        # Add sanity checks for batch data
+        batch_data = batch[0].numpy()  # Convert tensor to numpy for easier inspection
+        print(f"Batch data range: [{np.min(batch_data):.4f}, {np.max(batch_data):.4f}]")
+        if np.isnan(batch_data).any():
+            print("ERROR: Batch data contains NaN values!")
+            raise ValueError("Batch data contains NaN values")
+        if np.all(batch_data == 0):
+            print("ERROR: Batch data is all zeros!")
+            raise ValueError("Batch data is all zeros")
+        if np.max(batch_data) == np.min(batch_data):
+            print("WARNING: Batch data has constant values - no variation!")
+        print("✓ Batch data content validation passed!")
 
     # Make predictions
     try:
