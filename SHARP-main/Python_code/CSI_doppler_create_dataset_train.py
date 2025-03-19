@@ -49,23 +49,7 @@ if __name__ == '__main__':
     list_subdir = args.subdirs  # string
 
     for subdir in list_subdir.split(','):
-        # Check if we're working with a setup+activity subdirectory format (like "AR9b_J1")
-        # or just a setup format (like "AR9b")
-        if '_' in subdir:
-            # Extract setup ID from the subdirectory name (e.g., "AR9b" from "AR9b_J1")
-            setup_id = subdir.split('_')[0]
-            exp_dir = args.dir + subdir + '/'
-            print(f"Processing subdirectory: {subdir} (setup ID: {setup_id})")
-        else:
-            # If no underscore, use the whole subdirectory name as the setup_id
-            setup_id = subdir
-            exp_dir = args.dir + subdir + '/'
-            print(f"Processing subdirectory: {subdir}")
-
-        # Ensure the exp_dir exists
-        if not os.path.exists(exp_dir):
-            print(f"Creating directory: {exp_dir}")
-            os.makedirs(exp_dir, exist_ok=True)
+        exp_dir = args.dir + subdir + '/'
 
         path_train = exp_dir + 'train_antennas_' + str(activities)
         path_val = exp_dir + 'val_antennas_' + str(activities)
@@ -78,7 +62,6 @@ if __name__ == '__main__':
                     os.remove(f)
             else:
                 os.makedirs(pat, exist_ok=True)
-                print(f"Created directory: {pat}")
 
         path_complete = exp_dir + 'complete_antennas_' + str(activities)
         if os.path.exists(path_complete):
@@ -110,49 +93,21 @@ if __name__ == '__main__':
                 labels.append(label)
                 csi_matrix = []
 
-            # Extract activity from filename instead of subdirectory
-            # Handle multiple potential filename formats
-            try:
-                filename_parts = name.split('_')
-                
-                # Format specified by user: "ARxy_Z..." where activity is in the third part
-                if len(filename_parts) >= 3:
-                    # Extract activity from the third part as specified (index 2)
-                    activity_code = filename_parts[2]
-                elif len(filename_parts) >= 2:
-                    # Fallback to second part if third doesn't exist
-                    activity_code = filename_parts[1]
-                else:
-                    # Last resort fallback to the original method
-                    activity_code = subdir.split("_")[-1]
-                
-                # Handle cases where activity code might have number suffix (e.g., "J2")
-                # Extract just the letter part if needed
-                if activity_code and not activity_code[0].isdigit():
-                    base_activity = activity_code[0]
-                    if base_activity in csi_label_dict:
-                        activity_code = base_activity
-            except:
-                # Fallback in case of parsing errors
-                activity_code = subdir.split("_")[-1]
-                print(f"Warning: Using fallback label extraction for {name}")
-            
-            if activity_code not in csi_label_dict:
+            label = subdir.split("_")[-1]
+
+            if label not in csi_label_dict:
                 processed = False
                 continue
             processed = True
 
-            print(f"Processing {name}, activity code: {activity_code}")
+            print(name)
 
-            # Convert the activity code to a label number
-            label = convert_to_grouped_number(activity_code, csi_label_dict)
+            label = convert_to_grouped_number(label, csi_label_dict)
             if i_name % n_tot == 0:
                 prev_label = label
             elif label != prev_label:
-                print(f'ERROR: Label mismatch in {str(name)}, got {label} vs previous {prev_label}')
+                print('error in ' + str(name))
                 break
-
-            print(f"File: {name}, Activity: {activity_code}, Label: {label}")
 
             name_file = exp_dir + name + '.txt'
             with open(name_file, "rb") as fp:
@@ -191,13 +146,6 @@ if __name__ == '__main__':
                 print("Error: No valid data was processed. The lengths array is empty.")
                 continue  # Skip to the next subdir
             length_min = np.min(lengths)
-
-            # Print distribution of extracted labels for verification
-            unique_labels, label_counts = np.unique(labels, return_counts=True)
-            print("\nExtracted label distribution:")
-            for lab, count in zip(unique_labels, label_counts):
-                matching_activities = [act for act in csi_label_dict if convert_to_grouped_number(act, csi_label_dict) == lab]
-                print(f"  Label {lab} ({', '.join(matching_activities)}): {count} samples")
 
             # Convert data to format suitable for sklearn's train_test_split
             csi_matrices_for_split = []
@@ -410,12 +358,6 @@ if __name__ == '__main__':
                     print(f"Skipping {list_sets_name[set_idx]} set - no samples allocated")
                     continue
 
-                # Ensure the output directory exists
-                output_dir = exp_dir + list_sets_name[set_idx] + '_antennas_' + str(activities)
-                if not os.path.exists(output_dir):
-                    print(f"Creating output directory: {output_dir}")
-                    os.makedirs(output_dir, exist_ok=True)
-
                 csi_matrices_set, labels_set = create_windows_antennas(list_sets[set_idx], list_sets_labels[set_idx], window_length,
                                                                        stride_length, remove_mean=False)
 
@@ -426,42 +368,19 @@ if __name__ == '__main__':
                 names_set = []
                 suffix = '.txt'
                 for ii in range(len(csi_matrices_set)):
-                    # Construct the output filepath in the appropriate directory
-                    name_file = os.path.join(output_dir, f"{ii}{suffix}")
-                    
-                    # Double-check that the directory exists
-                    os.makedirs(os.path.dirname(name_file), exist_ok=True)
-                    
+                    name_file = exp_dir + list_sets_name[set_idx] + '_antennas_' + str(activities) + '/' + \
+                                str(ii) + suffix
                     names_set.append(name_file)
-                    try:
-                        with open(name_file, "wb") as fp:  # Pickling
-                            # Save the full antenna data as is
-                            pickle.dump(csi_matrices_set[ii], fp)
-                    except Exception as e:
-                        print(f"Error writing to {name_file}: {e}")
-                        
-                # Create label file in the proper directory
-                name_labels = os.path.join(exp_dir, f"labels_{list_sets_name[set_idx]}_antennas_{activities}{suffix}")
-                print(f"Creating label file: {name_labels}")
-                try:
-                    with open(name_labels, "wb") as fp:
-                        # Use labels_set which contains the correct labels for each window
-                        pickle.dump([int(label) for label in labels_set], fp)
-                except Exception as e:
-                    print(f"Error creating label file {name_labels}: {e}")
-                    
-                # Create metadata files in the proper directory
-                name_f = os.path.join(exp_dir, f"files_{list_sets_name[set_idx]}_antennas_{activities}{suffix}")
-                print(f"Creating metadata file: {name_f}")
-                try:
-                    with open(name_f, "wb") as fp:  # Pickling
-                        pickle.dump(names_set, fp)
-                except Exception as e:
-                    print(f"Error creating metadata file {name_f}: {e}")
-                    
-                name_f = os.path.join(exp_dir, f"num_windows_{list_sets_name[set_idx]}_antennas_{activities}{suffix}")
-                try:
-                    with open(name_f, "wb") as fp:  # Pickling
-                        pickle.dump(num_windows, fp)
-                except Exception as e:
-                    print(f"Error creating window metadata file {name_f}: {e}")
+                    with open(name_file, "wb") as fp:  # Pickling
+                        # Save the full antenna data as is
+                        pickle.dump(csi_matrices_set[ii], fp)
+                name_labels = exp_dir + '/labels_' + list_sets_name[set_idx] + '_antennas_' + str(activities) + suffix
+                with open(name_labels, "wb") as fp:
+                    # Use labels_set which contains the correct labels for each window
+                    pickle.dump([int(label) for label in labels_set], fp)
+                name_f = exp_dir + '/files_' + list_sets_name[set_idx] + '_antennas_' + str(activities) + suffix
+                with open(name_f, "wb") as fp:  # Pickling
+                    pickle.dump(names_set, fp)
+                name_f = exp_dir + '/num_windows_' + list_sets_name[set_idx] + '_antennas_' + str(activities) + suffix
+                with open(name_f, "wb") as fp:  # Pickling
+                    pickle.dump(num_windows, fp)
