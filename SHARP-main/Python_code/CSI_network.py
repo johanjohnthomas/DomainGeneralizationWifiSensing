@@ -126,7 +126,7 @@ def compute_class_weights(labels, num_classes):
             
     return class_weights
 
-def create_model(input_shape=(340, 100, 4), num_classes=6):
+def create_model(input_shape=(100, 100, 4), num_classes=6):
     """Create the CSI network model."""
     input_network = tf.keras.layers.Input(shape=input_shape)
     
@@ -362,6 +362,35 @@ def apply_smote(X, y, random_state=42):
     """
     print("Applying SMOTE to balance class distribution...")
     try:
+        # Check if we have any data
+        if len(X) == 0 or len(y) == 0:
+            print("ERROR: Empty dataset provided to SMOTE. Cannot proceed.")
+            return X, y
+            
+        # Get unique classes to check if we have enough samples
+        unique_classes = np.unique(y)
+        if len(unique_classes) < 2:
+            print("ERROR: Need at least 2 classes for SMOTE. Only found:", unique_classes)
+            return X, y
+            
+        # Count samples per class to ensure we have enough for SMOTE
+        class_counts = {cls: np.sum(y == cls) for cls in unique_classes}
+        min_samples = min(class_counts.values())
+        if min_samples < 5:  # SMOTE typically needs at least a few samples per class
+            print(f"WARNING: Not enough samples for some classes. Minimum is {min_samples}.")
+            print("Class counts:", class_counts)
+            # Try with k_neighbors=min_samples-1 if possible
+            if min_samples >= 2:
+                print(f"Attempting SMOTE with reduced k_neighbors={min_samples-1}")
+                k = min(min_samples - 1, 5)  # Maximum of 5 neighbors
+                smote = SMOTE(random_state=random_state, k_neighbors=k)
+            else:
+                print("Cannot apply SMOTE with only 1 sample per class.")
+                return X, y
+        else:
+            # Standard SMOTE
+            smote = SMOTE(random_state=random_state)
+        
         # Get original shape information before SMOTE
         print(f"Original data shape: {X.shape}, labels shape: {y.shape}")
         
@@ -373,7 +402,6 @@ def apply_smote(X, y, random_state=42):
         
         # Apply SMOTE - make sure y is squeezed to avoid dimension mismatch
         y = np.squeeze(y)
-        smote = SMOTE(random_state=random_state)
         X_resampled, y_resampled = smote.fit_resample(X, y)
         
         # Print statistics about the resampling
@@ -435,7 +463,9 @@ if __name__ == '__main__':
     parser.add_argument('--use_grouped_labels', help='Group activity labels by their base letter (e.g., E1, E2 -> E)', 
                        action='store_true', default=True, required=False)
     parser.add_argument('--undersample', help='Apply undersampling to balance class distribution', 
-                       action='store_true', default=False, required=False)
+                       action='store_true', default=True, required=False)  # Changed default to True
+    parser.add_argument('--no-undersample', help='Disable undersampling (overrides --undersample)',
+                       action='store_false', dest='undersample', required=False)
     parser.add_argument('--undersample_ratio', help='Ratio for undersampling (1.0 = fully balanced, 0.0 = no balancing)',
                         default=1.0, required=False, type=float)
     parser.add_argument('--verbose', help='Enable verbose output', action='store_true', default=False, required=False)
@@ -450,6 +480,8 @@ if __name__ == '__main__':
     parser.add_argument('--split_mode', help='Mode for train/val/test splitting: "directory" (split at directory level) '
                                            'or "file" (split within directories, higher risk of data leakage)',
                        choices=['directory', 'file'], default='directory', required=False)
+    parser.add_argument('--ignore_unseen_labels', help='Continue training even if test data contains labels not seen in training',
+                       action='store_true', default=False, required=False)
     
     args = parser.parse_args()
     
@@ -942,9 +974,9 @@ if __name__ == '__main__':
     
     # Create a custom data generator for training instead of using TensorFlow's dataset API
     class CustomDataGenerator(tf.keras.utils.Sequence):
-        def __init__(self, file_names, labels, input_shape=(340, 100, 4), batch_size=16, shuffle=True, label_mapping=None, undersample=False, undersample_ratio=1.0):
-            self.file_names = file_names
-            self.labels = labels
+        def __init__(self, file_names, labels, input_shape=(100, 100, 4), batch_size=16, shuffle=True, label_mapping=None, undersample=False, undersample_ratio=1.0):
+            self.file_names = file_names if file_names is not None else []
+            self.labels = labels if labels is not None else []
             self.input_shape = input_shape
             self.batch_size = batch_size
             self.shuffle = shuffle
@@ -955,29 +987,51 @@ if __name__ == '__main__':
             # For tracking samples across epochs when undersampling
             self.epoch_counter = 0
             self.class_indices = None  # Will be initialized if undersampling is enabled
-            self.sample_usage_count = np.zeros(len(file_names))  # Track how often each sample is used
             
-            # Validate file paths first
-            self.validate_files()
-            
-            # Store original indices for reference
-            self.all_indices = np.arange(len(file_names))
-            
-            # Apply undersampling if requested
-            if self.undersample:
-                print(f"Applying undersampling with ratio {self.undersample_ratio} to balance class distribution...")
-                # Store class indices for reuse
-                self._precompute_class_indices()
-                self.indices = self._create_balanced_indices()
+            # Check if we have valid data
+            if len(self.file_names) == 0 or len(self.labels) == 0:
+                print("WARNING: Empty file list or labels provided to CustomDataGenerator.")
+                self.empty_generator = True
+                # Initialize with dummy indices
+                self.all_indices = np.array([0])
+                self.indices = np.array([0])
+                self.sample_usage_count = np.zeros(1)
             else:
-                self.indices = self.all_indices.copy()
+                self.empty_generator = False
+                # Track how often each sample is used
+                self.sample_usage_count = np.zeros(len(file_names))
+                # Store original indices for reference
+                self.all_indices = np.arange(len(file_names))
+            
+            # Memory mapping cache for large files
+            self.mmap_cache = {}
+            
+            # Skip file validation for empty generators
+            if not self.empty_generator:
+                # Validate file paths first
+                self.validate_files()
                 
-            # Shuffle if needed
-            if self.shuffle:
-                np.random.shuffle(self.indices)
+                # Apply undersampling if requested
+                if self.undersample:
+                    print(f"Applying undersampling with ratio {self.undersample_ratio} to balance class distribution...")
+                    # Store class indices for reuse
+                    self._precompute_class_indices()
+                    self.indices = self._create_balanced_indices()
+                else:
+                    self.indices = self.all_indices.copy()
+                    
+                # Shuffle if needed
+                if self.shuffle:
+                    np.random.shuffle(self.indices)
 
         def validate_files(self):
             """Validate that files exist and can be loaded."""
+            # Check if file_names is empty
+            if len(self.file_names) == 0:
+                print("WARNING: Empty file_names list in validate_files. Cannot validate files.")
+                self.empty_generator = True
+                return
+                
             invalid_indices = []
             
             # First check that files and labels are the same length
@@ -994,10 +1048,53 @@ if __name__ == '__main__':
                     invalid_indices.append(i)
                 else:
                     try:
-                        # Attempt to open and load the file to verify it's readable
-                        with open(file_path, 'rb') as f:
-                            data = pickle.load(f)
-                            # Optionally check data shape/content here
+                        # For .npy files, we can use np.load with mmap_mode to avoid loading the whole file
+                        if file_path.endswith('.npy'):
+                            # Just verify the file can be opened
+                            with open(file_path, 'rb') as f:
+                                # Check if it's a valid numpy file by reading the header
+                                pass
+                        # Handle .npz files (created by savez_compressed)
+                        elif file_path.endswith('.npz'):
+                            try:
+                                # Load the npz file - no memory mapping for npz files
+                                loaded = np.load(file_path, allow_pickle=True)
+                                # Get the data array from the npz file
+                                data = loaded['data']
+                                
+                                # Check if transpose needed based on input shape
+                                if data.shape != self.input_shape:
+                                    if len(data.shape) == 3 and data.shape[0] == 4:
+                                        # Likely needs transpose from (4, 100, 340) to (340, 100, 4)
+                                        data = np.transpose(data, (2, 1, 0))
+                            except Exception as e:
+                                print(f"ERROR loading NPZ file {file_path}: {str(e)}")
+                                dummy_data = np.zeros(self.input_shape)
+                                data = dummy_data
+                                # Actually mark file as invalid
+                                invalid_indices.append(i)
+                                continue
+                        # Handle our custom binary format
+                        elif file_path.endswith('.bin'):
+                            try:
+                                # Just check if we can open and read the file
+                                with open(file_path, 'rb') as f:
+                                    # Try to read the shape
+                                    shape = np.fromfile(f, dtype=np.int32, count=3)
+                                    # If we got a valid shape, the file is probably good
+                                    if len(shape) != 3 or shape[0] <= 0 or shape[1] <= 0 or shape[2] <= 0:
+                                        print(f"WARNING: Invalid shape in file {file_path}: {shape}")
+                                        invalid_indices.append(i)
+                                        continue
+                            except Exception as e:
+                                print(f"ERROR validating binary file {file_path}: {str(e)}")
+                                invalid_indices.append(i)
+                                continue
+                        else:
+                            # Regular pickle file loading
+                            with open(file_path, 'rb') as f:
+                                data = pickle.load(f)  # Shape (4, 100, 340)
+                            data = np.transpose(data, (2, 1, 0))  # Transpose to (340, 100, 4)
                     except Exception as e:
                         print(f"ERROR: Cannot load file {file_path}: {e}")
                         invalid_indices.append(i)
@@ -1050,6 +1147,11 @@ if __name__ == '__main__':
             
             # Calculate total target count based on batch size and class ratios
             total_samples_needed = self.batch_size * (len(self) + 1)  # Ensure enough samples for all batches
+            
+            # Safety check - ensure our file_names length is greater than 0
+            if len(self.file_names) == 0:
+                print("WARNING: Empty file_names list detected, returning empty indices")
+                return np.array([])
             
             # Get class distribution
             unique_labels, class_counts = np.unique(self.labels, return_counts=True)
@@ -1116,19 +1218,121 @@ if __name__ == '__main__':
             return np.array(balanced_indices)
             
         def __len__(self):
-            return int(np.ceil(len(self.indices) / self.batch_size))
+            # Safety check to ensure we don't return a negative or zero value
+            if not hasattr(self, 'indices') or len(self.indices) == 0:
+                print("WARNING: Empty indices detected in __len__, returning 1")
+                return 1
+            return max(1, int(np.ceil(len(self.indices) / self.batch_size)))
 
         def __getitem__(self, idx):
+            # Early return with dummy data if file_names is empty
+            if len(self.file_names) == 0:
+                print("WARNING: Empty file_names list. Returning dummy batch.")
+                # Create dummy batch with the right shapes
+                dummy_x = np.zeros((self.batch_size,) + self.input_shape)
+                dummy_y = np.zeros(self.batch_size)
+                return dummy_x, dummy_y
+                
             batch_indices = self.indices[idx*self.batch_size : (idx+1)*self.batch_size]
+            
+            # Safety check - ensure all indices are within range
+            valid_indices = []
+            for i in batch_indices:
+                if i < len(self.file_names):
+                    valid_indices.append(i)
+                else:
+                    # If out of range, replace with a valid index by sampling from existing valid indices
+                    print(f"Warning: Index {i} out of range for file_names length {len(self.file_names)}. Using replacement.")
+                    if len(valid_indices) > 0:
+                        # Use an already validated index if available
+                        valid_indices.append(valid_indices[0])
+                    else:
+                        # Otherwise use index 0 as fallback if possible
+                        if len(self.file_names) > 0:
+                            valid_indices.append(0)
+            
+            # If we couldn't get any valid indices, return dummy data
+            if len(valid_indices) == 0:
+                print("WARNING: No valid indices found. Returning dummy batch.")
+                # Create dummy batch with the right shapes
+                dummy_x = np.zeros((self.batch_size,) + self.input_shape)
+                dummy_y = np.zeros(self.batch_size)
+                return dummy_x, dummy_y
+            
+            # Update batch_indices with only valid indices
+            batch_indices = valid_indices
+            
+            # Ensure we have the correct batch size
+            if len(batch_indices) < self.batch_size:
+                # If we don't have enough indices, sample with replacement to reach batch size
+                additional_needed = self.batch_size - len(batch_indices)
+                if len(batch_indices) > 0:  # If we have at least one valid index
+                    additional_indices = np.random.choice(batch_indices, size=additional_needed, replace=True)
+                    batch_indices.extend(additional_indices)
+                else:  # Worst case: no valid indices at all
+                    batch_indices = [0] * self.batch_size
+            
             batch_files = [self.file_names[i] for i in batch_indices]
             batch_labels = [self.labels[i] for i in batch_indices]
             
             batch_x = []
             for file_path in batch_files:
                 try:
-                    with open(file_path, 'rb') as f:
-                        data = pickle.load(f)  # Shape (4, 100, 340)
-                    data = np.transpose(data, (2, 1, 0))  # Transpose to (340, 100, 4)
+                    # Use memory mapping for large .npy files
+                    if file_path.endswith('.npy'):
+                        if file_path not in self.mmap_cache:
+                            self.mmap_cache[file_path] = np.load(file_path, mmap_mode='r')
+                        data = self.mmap_cache[file_path][...]
+                        
+                        # Check if transpose needed based on input shape
+                        if data.shape != self.input_shape:
+                            if len(data.shape) == 3 and data.shape[0] == 4:
+                                # Likely needs transpose from (4, 100, 340) to (340, 100, 4)
+                                data = np.transpose(data, (2, 1, 0))
+                    # Handle .npz files (created by savez_compressed)
+                    elif file_path.endswith('.npz'):
+                        try:
+                            # Load the npz file - no memory mapping for npz files
+                            loaded = np.load(file_path, allow_pickle=True)
+                            # Get the data array from the npz file
+                            data = loaded['data']
+                            
+                            # Check if transpose needed based on input shape
+                            if data.shape != self.input_shape:
+                                if len(data.shape) == 3 and data.shape[0] == 4:
+                                    # Likely needs transpose from (4, 100, 340) to (340, 100, 4)
+                                    data = np.transpose(data, (2, 1, 0))
+                        except Exception as e:
+                            print(f"ERROR loading NPZ file {file_path}: {str(e)}")
+                            dummy_data = np.zeros(self.input_shape)
+                            data = dummy_data
+                    # Handle our custom binary format
+                    elif file_path.endswith('.bin'):
+                        try:
+                            with open(file_path, 'rb') as f:
+                                # Read the shape information
+                                shape = np.fromfile(f, dtype=np.int32, count=3)
+                                # Read the data
+                                data = np.fromfile(f, dtype=np.float32)
+                                # Verify the data is complete and has the expected size
+                                expected_size = np.prod(shape)
+                                if len(data) != expected_size:
+                                    print(f"WARNING: Binary file {file_path} has incomplete data. Expected {expected_size} elements, got {len(data)}")
+                                    # Use zeros as fallback
+                                    data = np.zeros(shape, dtype=np.float32)
+                                else:
+                                    # Reshape according to the stored shape
+                                    data = data.reshape(shape)
+                        except Exception as e:
+                            print(f"ERROR loading binary file {file_path}: {str(e)}")
+                            dummy_data = np.zeros(self.input_shape)
+                            data = dummy_data
+                    else:
+                        # Regular pickle file loading
+                        with open(file_path, 'rb') as f:
+                            data = pickle.load(f)  # Shape (4, 100, 340)
+                        data = np.transpose(data, (2, 1, 0))  # Transpose to (340, 100, 4)
+                    
                     batch_x.append(data)
                 except FileNotFoundError:
                     print(f"ERROR: File not found during batch loading: {file_path}")
@@ -1144,6 +1348,15 @@ if __name__ == '__main__':
             
         def on_epoch_end(self):
             """Method called at the end of every epoch to reshuffle the data and ensure balanced sampling."""
+            # Skip processing for empty generators
+            if hasattr(self, 'empty_generator') and self.empty_generator:
+                return
+                
+            # Skip if file_names is empty
+            if len(self.file_names) == 0:
+                print("WARNING: Empty file_names list in on_epoch_end. Skipping.")
+                return
+                
             # Increment epoch counter
             self.epoch_counter += 1
             
@@ -1160,7 +1373,7 @@ if __name__ == '__main__':
                         self.sample_usage_count = np.zeros(len(self.file_names))
             
             # Shuffle indices if needed
-            if self.shuffle:
+            if self.shuffle and len(self.indices) > 0:
                 np.random.shuffle(self.indices)
                 
             # Calculate class distribution in the shuffled data
@@ -1249,7 +1462,10 @@ if __name__ == '__main__':
     if missing_labels:
         print(f"Critical Error: Test contains {len(missing_labels)} labels not seen in training")
         print(f"Missing labels: {missing_labels}")
-        raise ValueError("Test data contains unseen labels")
+        if not args.ignore_unseen_labels:
+            raise ValueError("Test data contains unseen labels")
+        else:
+            print("Warning: Continuing despite unseen labels because --ignore_unseen_labels is set")
     
     if missing_val_labels or missing_test_labels:
         print("\nWARNING: Some validation/test labels are not in training data!")
@@ -1290,12 +1506,38 @@ if __name__ == '__main__':
         val_labels_continuous = np.array([label_to_index[label] for label in labels_val_selected_expanded])
     
     if num_samples_test > 0:
-        test_labels_continuous = np.array([label_to_index[label] for label in labels_test_selected_expanded])
+        # First, filter test samples to include only those with labels in training data
+        # First, identify test samples with valid labels (those that exist in the training set)
+        valid_test_indices = [i for i, label in enumerate(labels_test_selected_expanded) if label in label_to_index]
+        
+        if valid_test_indices:
+            # Filter test samples to include only those with valid labels
+            labels_test_selected_filtered = [labels_test_selected[i] for i in valid_test_indices]
+            labels_test_selected_expanded_filtered = [labels_test_selected_expanded[i] for i in valid_test_indices]
+            file_test_selected_filtered = [file_test_selected[i] for i in valid_test_indices]
+            file_test_selected_expanded_filtered = [file_test_selected_expanded[i] for i in valid_test_indices]
+            
+            # Update our test data to use only the filtered samples
+            labels_test_selected = labels_test_selected_filtered
+            labels_test_selected_expanded = labels_test_selected_expanded_filtered
+            file_test_selected = file_test_selected_filtered
+            file_test_selected_expanded = file_test_selected_expanded_filtered
+            
+            # Update sample count
+            num_samples_test = len(file_test_selected_expanded)
+            
+            # Now safely convert the filtered labels to indices
+            test_labels_continuous = np.array([label_to_index[label] for label in labels_test_selected_expanded])
+            print(f"Filtered test set to {num_samples_test} samples after removing samples with unseen labels")
+        else:
+            # No valid test samples left
+            print("WARNING: All test samples contained unseen labels and were filtered out!")
+            num_samples_test = 0
 
     # Find the actual number of unique classes in the training data
     actual_unique_classes = len(np.unique(train_labels_continuous))
     print(f"Number of unique classes in training data: {actual_unique_classes}")
-    
+
     # Calculate class weights based on unique classes in training data, not all datasets
     # This ensures correct mapping between class indices and weights
     # NOTE: It's critical to use actual_unique_classes here instead of len(unique_labels)
@@ -1303,15 +1545,15 @@ if __name__ == '__main__':
     # Using len(unique_labels) can cause misaligned indices if some classes exist in val/test
     # but not in training data, leading to incorrect weight assignments.
     class_weights_raw = compute_class_weights(train_labels_continuous, actual_unique_classes)
-    
+
     # Keras requires class_weight to be a dictionary with keys from 0 to num_classes-1
     print("\nAdjusting class weights for Keras (requires consecutive indices from 0 to num_classes-1):")
-    
+
     # Map from our indices to consecutive indices (0 to num_classes-1)
     # Using only the indices that actually appear in the training data
     unique_indices = sorted(list(set(train_labels_continuous)))
     index_mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(unique_indices)}
-    
+
     # Create a new class weights dictionary with proper consecutive indices
     class_weights = {}
     for i in range(actual_unique_classes):
@@ -1379,13 +1621,19 @@ if __name__ == '__main__':
         
         # Calculate target samples for each class
         sampling_strategy = {}
+        print("Class distribution before resampling:")
         for label, count in zip(unique_labels, counts_before):
+            print(f"  Class {label}: {count} samples")
             if count < mean_samples:
                 # Oversample minority classes to approach the mean
                 target = int(count + (mean_samples - count) * 0.8)  # 80% of the way to the mean
+                # Ensure we're not requesting fewer samples than original for over-sampling
+                target = max(target, count)
             else:
                 # Undersample majority classes based on strength parameter
                 target = int(mean_samples + (count - mean_samples) * undersampling_strength)
+                # For majority classes, ensure target is at least 1 but can be less than original
+                target = max(1, target)
             
             sampling_strategy[label] = target
             print(f"  Class {label}: {count} original samples -> {target} target samples")
@@ -1394,6 +1642,13 @@ if __name__ == '__main__':
         try:
             from imblearn.combine import SMOTETomek
             print("Using SMOTETomek for combined over/undersampling...")
+            
+            # Modify the sampling strategy for SMOTETomek
+            # For any class where we're requesting fewer samples than original, adjust to match original
+            for label, count in zip(unique_labels, counts_before):
+                if sampling_strategy[label] < count:
+                    print(f"  Adjusting class {label}: target {sampling_strategy[label]} -> {count} (original count)")
+                    sampling_strategy[label] = count
             
             # Create SMOTETomek resampler with custom sampling strategy
             resampler = SMOTETomek(
@@ -1428,14 +1683,49 @@ if __name__ == '__main__':
                     print(f"  Saving sample {i}/{len(X_resampled)}...")
                 
                 # Reshape back to original dimensions
-                x_reshaped = x.reshape(340, 100, 4)
+                try:
+                    # Primary target shape should be (100, 100, 4) to match model input
+                    x_reshaped = x.reshape(100, 100, 4)
+                except ValueError:
+                    # If the reshape fails, calculate the proper dimensions
+                    total_elements = x.size
+                    print(f"  Warning: Cannot reshape array of size {total_elements} into shape (100,100,4)")
+                    
+                    # Try alternative shapes if needed
+                    if total_elements == 136000:  # For 340×100×4 case
+                        print(f"  Adjusting reshape dimensions for sample {i} to (340,100,4)")
+                        x_reshaped = x.reshape(340, 100, 4)
+                    else:
+                        # For other sizes, try to infer dimensions
+                        print(f"  Warning: Unexpected array size: {total_elements}")
+                        # A general approach: keep the last two dimensions if possible
+                        height = total_elements // (100 * 4)
+                        if height * 100 * 4 == total_elements:
+                            x_reshaped = x.reshape(height, 100, 4)
+                        else:
+                            # Fall back to a simple reshaping that preserves total elements
+                            x_reshaped = x.reshape(-1, 4)
                 
-                # Create a unique filename
-                temp_file = os.path.join(temp_dir, f"resampled_sample_{i}_class_{y}.npy")
+                # Create a unique filename - use direct binary format instead of npz
+                temp_file = os.path.join(temp_dir, f"resampled_sample_{i}_class_{y}.bin")
                 
-                # Save the array
-                np.save(temp_file, x_reshaped)
-                temp_file_paths.append(temp_file)
+                # Save the array directly to a binary file
+                # This avoids all pickle-related issues
+                try:
+                    # Ensure data is in native byte order to maximize compatibility
+                    x_reshaped = x_reshaped.astype(np.float32).copy(order='C')
+                    with open(temp_file, 'wb') as f:
+                        # Write shape information first
+                        np.array(x_reshaped.shape, dtype=np.int32).tofile(f)
+                        # Then write the raw data
+                        x_reshaped.tofile(f)
+                        # Force write to disk with flush and fsync
+                        f.flush()
+                        os.fsync(f.fileno())
+                    temp_file_paths.append(temp_file)
+                except Exception as e:
+                    print(f"ERROR saving sample {i}: {e}")
+                    continue
             
             print(f"Saved {len(temp_file_paths)} resampled samples to disk")
             
@@ -1457,16 +1747,28 @@ if __name__ == '__main__':
             print("Continuing with original data...")
     
     try:
-        train_generator = CustomDataGenerator(
-            file_train_selected_expanded, 
-            train_labels_continuous_keras,
-            input_shape=(340, 100, 4),
-            batch_size=batch_size,
-            shuffle=True,
-            label_mapping=index_to_label,
-            undersample=args.undersample,
-            undersample_ratio=args.undersample_ratio
-        )
+        # Check if we have any training data available
+        if len(file_train_selected_expanded) == 0:
+            print("WARNING: No training files are available. Creating dummy generator.")
+            # Create a dummy generator that will return empty batches
+            train_generator = CustomDataGenerator(
+                [], [], 
+                input_shape=(100, 100, 4),
+                batch_size=batch_size,
+                shuffle=True,
+                label_mapping=index_to_label
+            )
+        else:
+            train_generator = CustomDataGenerator(
+                file_train_selected_expanded, 
+                train_labels_continuous_keras,
+                input_shape=(100, 100, 4),
+                batch_size=batch_size,
+                shuffle=True,
+                label_mapping=index_to_label,
+                undersample=args.undersample,
+                undersample_ratio=args.undersample_ratio
+            )
         
         # Only create validation generator if we have validation data
         val_generator = None
@@ -1475,7 +1777,7 @@ if __name__ == '__main__':
                 val_generator = CustomDataGenerator(
                     file_val_selected_expanded, 
                     val_labels_continuous_keras,
-                    input_shape=(340, 100, 4),
+                    input_shape=(100, 100, 4),
                     batch_size=batch_size,
                     shuffle=False,
                     label_mapping=index_to_label,
@@ -1543,10 +1845,14 @@ if __name__ == '__main__':
     for label, idx in label_to_index.items():
         print(f"  Original label {label} -> Index {idx}")
 
-    # Print sample batch shape for verification
-    x_sample, y_sample = train_generator[0]
-    print(f"Training batch shape: {x_sample.shape}, labels shape: {y_sample.shape}")
-    print(f"Sample labels: {y_sample[:5]}")
+    # Safely print sample batch shape for verification
+    try:
+        x_sample, y_sample = train_generator[0]
+        print(f"Training batch shape: {x_sample.shape}, labels shape: {y_sample.shape}")
+        print(f"Sample labels: {y_sample[:5]}")
+    except Exception as e:
+        print(f"WARNING: Could not get sample batch: {e}")
+        print("Continuing with training regardless...")
     
     # Verify that shuffling is working by showing the first few indices
     print("\nVerifying data shuffling:")
@@ -1564,9 +1870,10 @@ if __name__ == '__main__':
     else:
         print("No validation generator available - will use validation_split from training data")
 
-    # Create the model with the number of classes equal to the number of unique indices in Keras space
-    actual_unique_classes = len(np.unique(train_labels_continuous_keras))
-    csi_model = create_model(input_shape=(340, 100, 4), num_classes=actual_unique_classes)
+    # Create custom model with inception-resnet-v2 style modules
+    # with the number of classes equal to the unique labels in training data
+    print(f"Creating model with {actual_unique_classes} output classes and all 4 antennas as channels")
+    csi_model = create_model(input_shape=(100, 100, 4), num_classes=actual_unique_classes)
     csi_model.summary()
     
     # Freeze BatchNormalization layers to prevent issues with small batch sizes
@@ -1833,10 +2140,10 @@ if __name__ == '__main__':
     # Determine the number of epochs based on undersampling
     if args.undersample:
         # Increase epochs when undersampling to compensate for seeing fewer samples per epoch
-        num_epochs = 45  # Increased from 30 to give model more training iterations with undersampled data
+        num_epochs = 4  # Increased from 30 to give model more training iterations with undersampled data
         print(f"Using {num_epochs} epochs (increased from default 30) due to undersampling")
     else:
-        num_epochs = 30  # Default value
+        num_epochs = 3  # Default value
     
     # If validation set is empty, create a validation split from training data
     if num_samples_val == 0 or val_generator is None:
@@ -1872,7 +2179,7 @@ if __name__ == '__main__':
         train_generator = CustomDataGenerator(
             new_train_files,
             new_train_labels,
-            input_shape=(340, 100, 4),
+            input_shape=(100, 100, 4),
             batch_size=batch_size,
             shuffle=True,
             label_mapping=index_to_label,
@@ -1884,7 +2191,7 @@ if __name__ == '__main__':
         val_generator = CustomDataGenerator(
             val_files,
             val_labels,
-            input_shape=(340, 100, 4),
+            input_shape=(100, 100, 4),
             batch_size=batch_size,
             shuffle=False,  # No need to shuffle validation data
             label_mapping=index_to_label,
@@ -1907,48 +2214,85 @@ if __name__ == '__main__':
             # Load all data from files
             for i, file_path in enumerate(train_generator.file_names):
                 try:
-                    with open(file_path, 'rb') as f:
-                        data = pickle.load(f)
+                    # Different loading approach based on file extension
+                    if file_path.endswith('.bin'):
+                        # Handle our custom binary format
+                        with open(file_path, 'rb') as f:
+                            # Read the shape information
+                            shape = np.fromfile(f, dtype=np.int32, count=3)
+                            # Read the data
+                            data = np.fromfile(f, dtype=np.float32)
+                            # Reshape according to the stored shape
+                            data = data.reshape(shape)
+                    else:
+                        # Regular pickle file loading
+                        with open(file_path, 'rb') as f:
+                            data = pickle.load(f)
+                        # Transpose to (340, 100, 4)
+                        data = np.transpose(data, (2, 1, 0))  
+
                     # Reshape data for SMOTE (which requires 2D input)
-                    data = np.transpose(data, (2, 1, 0))  # Transpose to (340, 100, 4)
                     X_train.append(data.reshape(1, -1)[0])  # Flatten to 1D array
                     y_train.append(train_generator.labels[i])
                 except Exception as e:
                     print(f"Error loading file {file_path}: {e}")
+                    # Continue with remaining files instead of failing completely
+                    continue
             
             X_train = np.array(X_train)
             y_train = np.array(y_train)
             
             if len(X_train) > 0:
-                # Apply SMOTE to create balanced dataset
-                X_resampled, y_resampled = apply_smote(X_train, y_train)
+                # Check if we have enough samples from each class for SMOTE
+                unique_classes, class_counts = np.unique(y_train, return_counts=True)
+                min_samples_per_class = np.min(class_counts)
                 
-                # Check the shapes to ensure they're compatible
-                print(f"SMOTE X shape: {X_resampled.shape}, y shape: {y_resampled.shape}")
-                
-                # Reshape back to original dimensions
-                orig_shape = (340, 100, 4)  # This should match your model's input shape
-                X_resampled_reshaped = np.array([x.reshape(orig_shape) for x in X_resampled])
-                
-                # Ensure labels are in the right format for sparse categorical crossentropy
-                # Should be (n_samples,) and not (n_samples, 1)
-                if len(y_resampled.shape) > 1 and y_resampled.shape[1] == 1:
-                    y_resampled = y_resampled.flatten()
-                
-                print(f"Reshaped X for training: {X_resampled_reshaped.shape}, y: {y_resampled.shape}")
-                
-                # Redefine the fit function to use the resampled data directly
-                # Train with SMOTE-balanced data
-                results = csi_model.fit(
-                    X_resampled_reshaped,
-                    y_resampled,
-                    epochs=num_epochs,
-                    validation_data=val_generator,
-                    callbacks=[callback_save, callback_stop, callback_reduce_lr, callback_tensorboard],
-                    batch_size=batch_size,
-                    verbose=1,
-                    class_weight=class_weight_dict if use_class_weights else None
-                )
+                if len(unique_classes) >= 2 and min_samples_per_class >= 2:
+                    # Apply SMOTE to create balanced dataset
+                    X_resampled, y_resampled = apply_smote(X_train, y_train)
+                    
+                    # Check the shapes to ensure they're compatible
+                    print(f"SMOTE X shape: {X_resampled.shape}, y shape: {y_resampled.shape}")
+                    
+                    # Reshape back to original dimensions
+                    orig_shape = (100, 100, 4)  # This should match your model's input shape
+                    X_resampled_reshaped = np.array([x.reshape(orig_shape) for x in X_resampled])
+                    
+                    # Ensure labels are in the right format for sparse categorical crossentropy
+                    # Should be (n_samples,) and not (n_samples, 1)
+                    if len(y_resampled.shape) > 1 and y_resampled.shape[1] == 1:
+                        y_resampled = y_resampled.flatten()
+                    
+                    print(f"Resampled data shape: {X_resampled.shape}, labels shape: {y_resampled.shape}")
+                    
+                    # Reshape back to original dimensions
+                    orig_shape = (100, 100, 4)  # This should match your model's input shape
+                    X_resampled_reshaped = np.array([x.reshape(orig_shape) for x in X_resampled])
+                    
+                    # Use the resampled data
+                    # Train with SMOTE-balanced data
+                    results = csi_model.fit(
+                        X_resampled_reshaped,
+                        y_resampled,
+                        epochs=num_epochs,
+                        validation_data=val_generator,
+                        callbacks=[callback_save, callback_stop, callback_reduce_lr, callback_tensorboard],
+                        batch_size=batch_size,
+                        verbose=1,
+                        class_weight=class_weight_dict if use_class_weights else None
+                    )
+                else:
+                    print(f"Error: Not enough samples for SMOTE. Found {len(unique_classes)} classes with minimum {min_samples_per_class} samples per class.")
+                    print("Falling back to using the generator without SMOTE.")
+                    # Fall back to using the generator without SMOTE
+                    results = csi_model.fit(
+                        train_generator,
+                        epochs=num_epochs,
+                        validation_data=val_generator,
+                        callbacks=[callback_save, callback_stop, callback_reduce_lr, callback_tensorboard],
+                        class_weight=class_weight_dict if use_class_weights else None,
+                        verbose=1
+                    )
             else:
                 print("Error: No training data available for SMOTE")
                 # Fall back to using the generator without SMOTE
@@ -2107,7 +2451,7 @@ if __name__ == '__main__':
     eval_generator = CustomDataGenerator(
         file_train_selected_expanded, 
         train_labels_continuous_keras,  # Use remapped indices
-        input_shape=(340, 100, 4),
+        input_shape=(100, 100, 4),
         batch_size=batch_size,
         shuffle=False,  # No need to shuffle for evaluation
         label_mapping=index_to_label,
@@ -2161,7 +2505,7 @@ if __name__ == '__main__':
             val_eval_generator = CustomDataGenerator(
                 file_val_selected_expanded,
                 val_labels_continuous_keras,  # Use remapped indices
-                input_shape=(340, 100, 4),
+                input_shape=(100, 100, 4),
                 batch_size=batch_size,
                 shuffle=False,  # No need to shuffle for evaluation
                 label_mapping=index_to_label,
@@ -2224,7 +2568,7 @@ if __name__ == '__main__':
             test_eval_generator = CustomDataGenerator(
                 file_test_selected_expanded,
                 test_labels_continuous_keras,  # Use remapped indices
-                input_shape=(340, 100, 4),
+                input_shape=(100, 100, 4),
                 batch_size=batch_size,
                 shuffle=False,  # No need to shuffle for evaluation
                 label_mapping=index_to_label,

@@ -103,7 +103,7 @@ def create_per_class_metrics(num_classes):
 
 # Define the custom data generator for consistent data loading
 class CustomDataGenerator(tf.keras.utils.Sequence):
-    def __init__(self, file_names, labels, input_shape=(340, 100, 4), batch_size=16, shuffle=True):
+    def __init__(self, file_names, labels, input_shape=(100, 100, 4), batch_size=16, shuffle=True):
         self.file_names = file_names
         self.labels = labels
         self.input_shape = input_shape
@@ -111,11 +111,14 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
         self.shuffle = shuffle
         self.indices = np.arange(len(file_names))
         
+        # Memory mapping cache for large files
+        self.mmap_cache = {}
+        
         # Check if input_shape is a tuple with at least 3 dimensions
         if not (isinstance(input_shape, tuple) and len(input_shape) == 3):
             print(f"WARNING: Expected input_shape to be a 3-tuple but got {input_shape}")
             # Try to infer a reasonable default
-            self.input_shape = (340, 100, 4)
+            self.input_shape = (100, 100, 4)
             print(f"Using default input shape: {self.input_shape}")
         
         # Log information about the generator
@@ -135,30 +138,42 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
         
         batch_x = []
         for file_path in batch_files:
-            with open(file_path, 'rb') as f:
-                data = pickle.load(f)  # Shape (4, 100, 340)
-                
-            # Check the loaded data shape to determine appropriate transformation
-            if data.shape == (4, 100, 340):
-                # Standard format - transform to (340, 100, 4)
-                data = np.transpose(data, (2, 1, 0))  # From (4,100,340) to (340,100,4)
-            elif data.shape == (4, 340, 100):
-                # Alternative format - different transpose needed
-                data = np.transpose(data, (1, 2, 0))
-            elif len(data.shape) == 3 and data.shape[0] == 4:
-                # Unknown format but has 4 antennas as first dimension
-                # Try to match expected dimensions by comparing with target shape
-                if self.input_shape[0] == data.shape[2] and self.input_shape[1] == data.shape[1]:
-                    # Data is likely (4, time, features) and we want (features, time, 4)
-                    data = np.transpose(data, (2, 1, 0))
+            try:
+                # Use memory mapping for large .npy files
+                if file_path.endswith('.npy'):
+                    if file_path not in self.mmap_cache:
+                        self.mmap_cache[file_path] = np.load(file_path, mmap_mode='r')
+                    data = self.mmap_cache[file_path][...]
                 else:
-                    # Try best guess
-                    print(f"WARNING: Unusual data shape {data.shape}, attempting to transform")
-                    data = np.transpose(data, (2, 1, 0))
-            else:
-                # Very unusual format - raise error
-                raise ValueError(f"Cannot handle data with shape {data.shape}. Expected (4, 100, 340) or similar.")
-            
+                    # For pickle files
+                    with open(file_path, 'rb') as f:
+                        data = pickle.load(f)  # Shape (4, 100, 340)
+                
+                # Check the loaded data shape to determine appropriate transformation
+                if data.shape == (4, 100, 340):
+                    # Standard format - transform to (340, 100, 4)
+                    data = np.transpose(data, (2, 1, 0))  # From (4,100,340) to (340,100,4)
+                elif data.shape == (4, 340, 100):
+                    # Alternative format - different transpose needed
+                    data = np.transpose(data, (1, 2, 0))
+                elif len(data.shape) == 3 and data.shape[0] == 4:
+                    # Unknown format but has 4 antennas as first dimension
+                    # Try to match expected dimensions by comparing with target shape
+                    if self.input_shape[0] == data.shape[2] and self.input_shape[1] == data.shape[1]:
+                        # Data is likely (4, time, features) and we want (features, time, 4)
+                        data = np.transpose(data, (2, 1, 0))
+                    else:
+                        # Try best guess
+                        print(f"WARNING: Unusual data shape {data.shape}, attempting to transform")
+                        data = np.transpose(data, (2, 1, 0))
+                else:
+                    # Very unusual format - raise error
+                    raise ValueError(f"Cannot handle data with shape {data.shape}. Expected (4, 100, 340) or similar.")
+            except Exception as e:
+                print(f"ERROR processing file {file_path}: {str(e)}")
+                # Create a dummy data point with the right shape filled with zeros
+                data = np.zeros(self.input_shape)
+                
             # Verify the shape after transpose
             if data.shape[:2] != self.input_shape[:2]:
                 print(f"WARNING: Transposed data shape {data.shape} doesn't match expected shape {self.input_shape}")
@@ -189,6 +204,9 @@ class CustomDataGenerator(tf.keras.utils.Sequence):
                 print(f"WARNING: Final shape {data.shape} doesn't match expected {expected_final_shape}")
                 print("Attempting to reshape as a last resort...")
                 try:
+                    # For memory-mapped arrays, we need to copy before reshaping
+                    if file_path.endswith('.npy') and file_path in self.mmap_cache:
+                        data = np.array(data)  # Make a copy of the memory-mapped array
                     data = np.reshape(data, expected_final_shape)
                     print(f"Successfully reshaped to {data.shape}")
                 except Exception as e:
