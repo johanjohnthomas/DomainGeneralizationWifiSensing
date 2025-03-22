@@ -63,7 +63,7 @@ if __name__ == '__main__':
     for name in names:
         name_file = './phase_processing/signal_' + name + '.txt'
         if path.exists(name_file):
-            #print('Already processed')
+            print('Already processed')
             continue
 
         csi_buff_file = exp_dir + name + ".mat"

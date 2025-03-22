@@ -20,8 +20,7 @@ import numpy as np
 import pickle
 import math as mt
 import shutil
-from dataset_utility import create_windows_antennas, convert_to_number, convert_to_grouped_number
-from sklearn.model_selection import train_test_split, GroupShuffleSplit
+from dataset_utility import create_windows_antennas, convert_to_number
 
 
 if __name__ == '__main__':
@@ -41,38 +40,53 @@ if __name__ == '__main__':
     for lab_act in labels_activities.split(','):
         csi_label_dict.append(lab_act)
 
-    activities = np.asarray(labels_activities)
+    activities = "_".join(labels_activities.split(','))  # Convert "E,W,R,J,L,S,C,G" to "E_W_R_J_L_S_C_G"
 
     n_tot = args.n_tot
     num_packets = args.sample_lengths  # 51
     middle = int(np.floor(num_packets / 2))
     list_subdir = args.subdirs  # string
+    
+    print(f"Labels dictionary: {csi_label_dict}")
+    print(f"Activities string: {activities}")
+    print(f"Number of streams * antennas: {n_tot}")
 
     for subdir in list_subdir.split(','):
-        exp_dir = args.dir + subdir + '/'
+        exp_dir = os.path.join(args.dir, subdir)
+        
+        # Debug: Print the directory being processed
+        print(f"Processing directory: {exp_dir}")
 
-        path_train = exp_dir + 'train_antennas_' + str(activities)
-        path_val = exp_dir + 'val_antennas_' + str(activities)
-        path_test = exp_dir + 'test_antennas_' + str(activities)
+        path_train = os.path.join(exp_dir, f'train_antennas_{activities}')
+        path_val = os.path.join(exp_dir, f'val_antennas_{activities}')
+        path_test = os.path.join(exp_dir, f'test_antennas_{activities}')
         paths = [path_train, path_val, path_test]
         for pat in paths:
             if os.path.exists(pat):
-                remove_files = glob.glob(pat + '/*')
+                remove_files = glob.glob(os.path.join(pat, '*'))
                 for f in remove_files:
                     os.remove(f)
+                print(f"Cleaned existing directory: {pat}")
             else:
                 os.makedirs(pat, exist_ok=True)
+                print(f"Created directory: {pat}")
 
-        path_complete = exp_dir + 'complete_antennas_' + str(activities)
+        path_complete = os.path.join(exp_dir, f'complete_antennas_{activities}')
         if os.path.exists(path_complete):
             shutil.rmtree(path_complete)
+            print(f"Removed existing directory: {path_complete}")
 
         names = []
-        all_files = os.listdir(exp_dir)
-        for filename in all_files:
-            if filename.endswith('.txt') and not filename.startswith('.') and '_stream_' in filename:
-                names.append(filename[:-4])
+        # Recursively find all .txt files in the subdirectory
+        for root, dirs, files in os.walk(exp_dir):
+            for file in files:
+                if file.endswith('.txt') and 'stream' in file:
+                    names.append(os.path.join(root, file[:-4]))  # Remove .txt extension
         names.sort()
+
+        # Debug: Print the number of files found
+        print(f"Found {len(names)} files")
+        print(f"First few files: {names[:min(5, len(names))]}")
 
         csi_matrices = []
         labels = []
@@ -87,39 +101,40 @@ if __name__ == '__main__':
 
                 for i_ant in range(1, n_tot):
                     if ll != csi_matrix[i_ant].shape[1]:
+                        print(f"Shape mismatch in antenna {i_ant}: expected {ll}, got {csi_matrix[i_ant].shape[1]}")
                         break
                 lengths.append(ll)
                 csi_matrices.append(np.asarray(csi_matrix))
                 labels.append(label)
                 csi_matrix = []
+                print(f"Added matrix with shape {csi_matrices[-1].shape} and label {label}")
 
-            label = subdir.split("_")[-1]
+            # Extract activity label from filename (e.g., "J" from "AR1a_J1_stream_0")
+            label = os.path.basename(name).split('_')[1][0]
+
+            # Debug: Print the extracted label
+            print(f"Extracted label: {label} from file: {os.path.basename(name)}")
 
             if label not in csi_label_dict:
                 processed = False
+                print(f"Skipping label {label} not in dictionary {csi_label_dict}")
                 continue
             processed = True
 
-            print(name)
-
-            label = convert_to_grouped_number(label, csi_label_dict)
+            label = convert_to_number(label, csi_label_dict)
             if i_name % n_tot == 0:
                 prev_label = label
             elif label != prev_label:
                 print('error in ' + str(name))
                 break
 
-            name_file = exp_dir + name + '.txt'
-            with open(name_file, "rb") as fp:
+            name_file = name + '.txt'
+            with open(name_file, "rb") as fp:  # Unpickling
                 stft_sum_1 = pickle.load(fp)
-                
-            # Convert lists to numpy arrays
-            if isinstance(stft_sum_1, list):
-                stft_sum_1 = np.array(stft_sum_1, dtype=np.float32)
 
-            # Validate array type
-            if stft_sum_1.dtype != np.float32 and stft_sum_1.dtype != np.float64:
-                stft_sum_1 = stft_sum_1.astype(np.float32)
+            # Debug: Print the shape of the loaded data
+            print(f"Loaded data shape: {stft_sum_1.shape}")
+
             stft_sum_1_mean = stft_sum_1 - np.mean(stft_sum_1, axis=0, keepdims=True)
 
             csi_matrix.append(stft_sum_1_mean.T)
@@ -128,221 +143,49 @@ if __name__ == '__main__':
         if processed:
             # for the last block
             if len(csi_matrix) < n_tot:
-                print('error in ' + str(name))
+                print(f"Error in {name}: insufficient antennas. Got {len(csi_matrix)}, expected {n_tot}")
             ll = csi_matrix[0].shape[1]
 
             for i_ant in range(1, n_tot):
                 if ll != csi_matrix[i_ant].shape[1]:
-                    print('error in ' + str(name))
+                    print(f"Error in {name}: shape mismatch in antenna {i_ant}. Expected {ll}, got {csi_matrix[i_ant].shape[1]}")
                     error = True
             if not error:
                 lengths.append(ll)
                 csi_matrices.append(np.asarray(csi_matrix))
                 labels.append(label)
+                print(f"Added final matrix with shape {csi_matrices[-1].shape} and label {label}")
 
         if not error:
             lengths = np.asarray(lengths)
-            if len(lengths) == 0:
-                print("Error: No valid data was processed. The lengths array is empty.")
-                continue  # Skip to the next subdir
             length_min = np.min(lengths)
+            print(f"Total matrices: {len(csi_matrices)}, Total labels: {len(labels)}")
+            print(f"Lengths: min={length_min}, max={np.max(lengths)}, avg={np.mean(lengths)}")
 
-            # Convert data to format suitable for sklearn's train_test_split
-            csi_matrices_for_split = []
-            
-            # Prepare data for splitting
+            csi_train = []
+            csi_val = []
+            csi_test = []
+            length_train = []
+            length_val = []
+            length_test = []
             for i in range(len(labels)):
-                # Extract features from each CSI matrix up to the minimum length
-                csi_matrix = csi_matrices[i][:, :, :length_min]
-                # Store as a sample for splitting
-                csi_matrices_for_split.append(csi_matrix)
+                ll = lengths[i]
+                total_len = ll - 2 * mt.ceil(num_packets/args.sliding)  # Account for sliding
+                train_len = int(total_len * 0.6)
+                length_train.append(train_len)
+                csi_train.append(csi_matrices[i][:, :, :train_len])
+
+                start_val = train_len + mt.ceil(num_packets/args.sliding)
+                val_len = int(total_len * 0.2)
+                test_len = total_len - train_len - val_len
+                length_val.append(val_len)
+                csi_val.append(csi_matrices[i][:, :, start_val:start_val + val_len])
+
+                start_test = start_val + val_len + mt.ceil(num_packets/args.sliding)
+                length_test.append(ll - val_len - train_len - 2*mt.ceil(num_packets/args.sliding))
+                csi_test.append(csi_matrices[i][:, :, start_test:])
             
-            # For stratification to work correctly, we need one label per sample
-            labels_for_split = np.array(labels)
-            
-            # Check if we have enough samples to do stratified splitting
-            # We need at least 3 samples: 1 for train, 1 for val, 1 for test (minimum viable split)
-            total_samples = len(csi_matrices_for_split)
-            
-            print(f"\nPreparing to split {total_samples} samples across train, validation, and test sets")
-            
-            # Get counts for each class to check if stratification is possible
-            unique_labels, label_counts = np.unique(labels_for_split, return_counts=True)
-            min_class_count = np.min(label_counts)
-            
-            print(f"Label distribution before splitting:")
-            for label, count in zip(unique_labels, label_counts):
-                print(f"  Class {label}: {count} samples")
-            
-            # USING GROUPSHUFFLESPLIT TO PREVENT DATA LEAKAGE
-            # Extract subdirectory information to use as groups
-            # This ensures samples from the same subject/environment stay together
-            subdir_groups = []
-            for i in range(len(names)):
-                if i % n_tot == 0 and processed:
-                    # Extract a unique identifier for the recording session/subject
-                    # This uses the naming convention from the input files
-                    session_id = names[i].split('_')[0]  # Adjust based on your naming convention
-                    subdir_groups.append(session_id)
-            
-            print(f"Using GroupShuffleSplit to prevent data leakage across {len(np.unique(subdir_groups))} unique groups")
-            
-            if total_samples >= 3 and min_class_count >= 3:
-                print("Using group-based splitting with 60/20/20 ratio")
-                
-                # First split: Train vs (Val+Test)
-                gss = GroupShuffleSplit(n_splits=1, test_size=0.4, random_state=42)
-                train_idx, temp_idx = next(gss.split(csi_matrices_for_split, groups=subdir_groups))
-                
-                X_train = [csi_matrices_for_split[i] for i in train_idx]
-                y_train = labels_for_split[train_idx]
-                
-                # Create temporary lists for second split
-                X_temp = [csi_matrices_for_split[i] for i in temp_idx]
-                y_temp = labels_for_split[temp_idx]
-                temp_groups = [subdir_groups[i] for i in temp_idx]
-                
-                # Second split: Val vs Test (ensuring groups stay together)
-                if len(X_temp) >= 2:
-                    gss_val_test = GroupShuffleSplit(n_splits=1, test_size=0.5, random_state=42)
-                    val_idx, test_idx = next(gss_val_test.split(X_temp, groups=temp_groups))
-                    
-                    X_val = [X_temp[i] for i in val_idx]
-                    y_val = np.array([y_temp[i] for i in val_idx])
-                    
-                    X_test = [X_temp[i] for i in test_idx]
-                    y_test = np.array([y_temp[i] for i in test_idx])
-                else:
-                    # If we don't have enough samples for a proper split
-                    if len(X_temp) == 1:
-                        X_val = X_temp
-                        y_val = y_temp
-                        X_test = []
-                        y_test = np.array([])
-                    else:
-                        X_val = []
-                        y_val = np.array([])
-                        X_test = []
-                        y_test = np.array([])
-            
-            else:
-                print(f"WARNING: Not enough samples for proper group splitting (Total: {total_samples}, Min per class: {min_class_count})")
-                print(f"Using a prioritized allocation strategy:")
-                
-                # Instead of duplicating samples, we'll prioritize allocation based on how many samples we have
-                if total_samples == 0:
-                    print("CRITICAL ERROR: No samples available for this domain-activity combination")
-                    print("Skipping this combination")
-                    continue  # Skip to the next subdirectory
-                
-                elif total_samples == 1:
-                    print("One sample available - allocating to training set only")
-                    X_train = csi_matrices_for_split
-                    y_train = labels_for_split
-                    X_val = []  # Empty list
-                    y_val = np.array([])
-                    X_test = []  # Empty list
-                    y_test = np.array([])
-                    
-                    print(f"Allocation: Train={len(X_train)}, Val={len(X_val)}, Test={len(X_test)}")
-                
-                elif total_samples == 2:
-                    print("Two samples available - allocating to training and validation sets")
-                    X_train = [csi_matrices_for_split[0]]
-                    y_train = np.array([labels_for_split[0]])
-                    X_val = [csi_matrices_for_split[1]]
-                    y_val = np.array([labels_for_split[1]])
-                    X_test = []  # Empty list
-                    y_test = np.array([])
-                    
-                    print(f"Allocation: Train={len(X_train)}, Val={len(X_val)}, Test={len(X_test)}")
-                
-                else:  # 3+ samples but not enough per class for proper stratification
-                    # Allocate based on groups to maintain separation
-                    unique_groups = np.unique(subdir_groups)
-                    
-                    if len(unique_groups) >= 3:
-                        # If we have at least 3 unique groups, assign to train/val/test
-                        np.random.seed(42)
-                        np.random.shuffle(unique_groups)
-                        
-                        # Allocate groups based on 60/20/20 split
-                        train_size = max(1, int(len(unique_groups) * 0.6))
-                        val_size = max(1, int(len(unique_groups) * 0.2))
-                        test_size = len(unique_groups) - train_size - val_size
-                        
-                        train_groups = unique_groups[:train_size]
-                        val_groups = unique_groups[train_size:train_size+val_size]
-                        test_groups = unique_groups[train_size+val_size:]
-                        
-                        # Assign samples to splits based on their group
-                        train_indices = [i for i, g in enumerate(subdir_groups) if g in train_groups]
-                        val_indices = [i for i, g in enumerate(subdir_groups) if g in val_groups]
-                        test_indices = [i for i, g in enumerate(subdir_groups) if g in test_groups]
-                        
-                        X_train = [csi_matrices_for_split[i] for i in train_indices]
-                        y_train = labels_for_split[train_indices]
-                        
-                        X_val = [csi_matrices_for_split[i] for i in val_indices]
-                        y_val = labels_for_split[val_indices]
-                        
-                        X_test = [csi_matrices_for_split[i] for i in test_indices]
-                        y_test = labels_for_split[test_indices]
-                    
-                    elif len(unique_groups) == 2:
-                        # If we have 2 unique groups, assign to train/val
-                        group1_indices = [i for i, g in enumerate(subdir_groups) if g == unique_groups[0]]
-                        group2_indices = [i for i, g in enumerate(subdir_groups) if g == unique_groups[1]]
-                        
-                        X_train = [csi_matrices_for_split[i] for i in group1_indices]
-                        y_train = labels_for_split[group1_indices]
-                        
-                        X_val = [csi_matrices_for_split[i] for i in group2_indices]
-                        y_val = labels_for_split[group2_indices]
-                        
-                        X_test = []  # Empty list
-                        y_test = np.array([])
-                    
-                    else:  # Only 1 unique group
-                        # All samples go to training
-                        X_train = csi_matrices_for_split
-                        y_train = labels_for_split
-                        X_val = []
-                        y_val = np.array([])
-                        X_test = []
-                        y_test = np.array([])
-                    
-                    print(f"Allocation by groups: Train={len(X_train)}, Val={len(X_val)}, Test={len(X_test)}")
-            
-            # Prepare for window creation (convert back to the format expected by create_windows_antennas)
-            csi_train = X_train
-            csi_val = X_val
-            csi_test = X_test
-            
-            # Update the labels to match the new split
-            train_labels = y_train
-            val_labels = y_val
-            test_labels = y_test
-            
-            # Compute lengths for each split
-            length_train = [x.shape[2] for x in csi_train]
-            length_val = [x.shape[2] for x in csi_val]
-            length_test = [x.shape[2] for x in csi_test]
-            
-            # Print out statistics about the split to verify stratification
-            print(f"\nData splitting statistics:")
-            print(f"Original data: {len(labels)} samples")
-            print(f"After split: Train: {len(train_labels)}, Val: {len(val_labels)}, Test: {len(test_labels)}")
-            
-            # Check label distribution
-            unique_labels = np.unique(labels_for_split)
-            print("\nLabel distribution:")
-            for label in unique_labels:
-                orig_count = np.sum(labels_for_split == label)
-                train_count = np.sum(train_labels == label)
-                val_count = np.sum(val_labels == label)
-                test_count = np.sum(test_labels == label)
-                print(f"  Label {label}: Original: {orig_count}, Train: {train_count} ({train_count/orig_count:.2%}), Val: {val_count} ({val_count/orig_count:.2%}), Test: {test_count} ({test_count/orig_count:.2%})")
+            print(f"Split data: train={len(csi_train)}, val={len(csi_val)}, test={len(csi_test)}")
 
             window_length = args.windows_length  # number of windows considered
             stride_length = args.stride_lengths
@@ -350,37 +193,42 @@ if __name__ == '__main__':
             list_sets_name = ['train', 'val', 'test']
             list_sets = [csi_train, csi_val, csi_test]
             list_sets_lengths = [length_train, length_val, length_test]
-            list_sets_labels = [train_labels, val_labels, test_labels]
 
             for set_idx in range(3):
-                # Skip processing empty sets
-                if len(list_sets[set_idx]) == 0:
-                    print(f"Skipping {list_sets_name[set_idx]} set - no samples allocated")
-                    continue
-
-                csi_matrices_set, labels_set = create_windows_antennas(list_sets[set_idx], list_sets_labels[set_idx], window_length,
+                print(f"Processing {list_sets_name[set_idx]} set")
+                csi_matrices_set, labels_set = create_windows_antennas(list_sets[set_idx], labels, window_length,
                                                                        stride_length, remove_mean=False)
 
-                num_windows = np.floor((np.asarray(list_sets_lengths[set_idx]) - window_length) / stride_length + 1)
+                num_windows = ((np.asarray(list_sets_lengths[set_idx]) - window_length + stride_length) // stride_length)
+                print(f"Window length: {window_length}, Stride length: {stride_length}")
+                print(f"Lengths of data: {list_sets_lengths[set_idx]}")
+                print(f"Calculated number of windows: {num_windows}")
+                print(f"Actual number of windows: {len(csi_matrices_set)}")
                 if not len(csi_matrices_set) == np.sum(num_windows):
-                    print('ERROR - shapes mismatch')
+                    print(f'ERROR - shapes mismatch in {list_sets_name[set_idx]}: {len(csi_matrices_set)} vs {np.sum(num_windows)}')
+                else:
+                    print(f"Created {len(csi_matrices_set)} windows for {list_sets_name[set_idx]} set")
 
                 names_set = []
                 suffix = '.txt'
                 for ii in range(len(csi_matrices_set)):
-                    name_file = exp_dir + list_sets_name[set_idx] + '_antennas_' + str(activities) + '/' + \
-                                str(ii) + suffix
+                    name_file = os.path.join(exp_dir, f"{list_sets_name[set_idx]}_antennas_{activities}", f"{ii}{suffix}")
                     names_set.append(name_file)
                     with open(name_file, "wb") as fp:  # Pickling
-                        # Save the full antenna data as is
                         pickle.dump(csi_matrices_set[ii], fp)
-                name_labels = exp_dir + '/labels_' + list_sets_name[set_idx] + '_antennas_' + str(activities) + suffix
-                with open(name_labels, "wb") as fp:
-                    # Use labels_set which contains the correct labels for each window
-                    pickle.dump([int(label) for label in labels_set], fp)
-                name_f = exp_dir + '/files_' + list_sets_name[set_idx] + '_antennas_' + str(activities) + suffix
+                
+                print(f"Saved {len(names_set)} files for {list_sets_name[set_idx]} set")
+                
+                name_labels = os.path.join(exp_dir, f"labels_{list_sets_name[set_idx]}_antennas_{activities}{suffix}")
+                with open(name_labels, "wb") as fp:  # Pickling
+                    pickle.dump(labels_set, fp)
+                
+                name_f = os.path.join(exp_dir, f"files_{list_sets_name[set_idx]}_antennas_{activities}{suffix}")
                 with open(name_f, "wb") as fp:  # Pickling
                     pickle.dump(names_set, fp)
-                name_f = exp_dir + '/num_windows_' + list_sets_name[set_idx] + '_antennas_' + str(activities) + suffix
+                
+                name_f = os.path.join(exp_dir, f"num_windows_{list_sets_name[set_idx]}_antennas_{activities}{suffix}")
                 with open(name_f, "wb") as fp:  # Pickling
                     pickle.dump(num_windows, fp)
+                
+                print(f"Finished processing {list_sets_name[set_idx]} set")

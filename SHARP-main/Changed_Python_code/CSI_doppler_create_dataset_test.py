@@ -18,7 +18,7 @@ import glob
 import os
 import numpy as np
 import pickle
-from dataset_utility import create_windows_antennas, convert_to_number
+from dataset_utility import create_windows_antennas, convert_to_number, convert_to_grouped_number
 import shutil
 
 
@@ -39,53 +39,38 @@ if __name__ == '__main__':
     for lab_act in labels_activities.split(','):
         csi_label_dict.append(lab_act)
 
-    activities = "_".join(labels_activities.split(','))  # Convert "E,W,R,J,L,S,C,G" to "E_W_R_J_L_S_C_G"
+    activities = np.asarray(labels_activities)
 
     n_tot = args.n_tot
     num_packets = args.sample_lengths  # 51
     middle = int(np.floor(num_packets / 2))
     list_subdir = args.subdirs  # string
-    
-    print(f"Labels dictionary: {csi_label_dict}")
-    print(f"Activities string: {activities}")
-    print(f"Number of streams * antennas: {n_tot}")
 
     for subdir in list_subdir.split(','):
-        exp_dir = os.path.join(args.dir, subdir)
-        
-        # Debug: Print the directory being processed
-        print(f"Processing directory: {exp_dir}")
+        exp_dir = args.dir + subdir + '/'
 
-        path_train = os.path.join(exp_dir, f'train_antennas_{activities}')
-        path_val = os.path.join(exp_dir, f'val_antennas_{activities}')
-        path_test = os.path.join(exp_dir, f'test_antennas_{activities}')
+        path_train = exp_dir + 'train_antennas_' + str(activities)
+        path_val = exp_dir + 'val_antennas_' + str(activities)
+        path_test = exp_dir + 'test_antennas_' + str(activities)
         paths = [path_train, path_val, path_test]
         for pat in paths:
             if os.path.exists(pat):
                 shutil.rmtree(pat)
-                print(f"Removed directory: {pat}")
 
-        path_complete = os.path.join(exp_dir, f'complete_antennas_{activities}')
+        path_complete = exp_dir + 'complete_antennas_' + str(activities)
         if os.path.exists(path_complete):
-            remove_files = glob.glob(os.path.join(path_complete, '*'))
+            remove_files = glob.glob(path_complete + '/*')
             for f in remove_files:
                 os.remove(f)
-            print(f"Cleaned directory: {path_complete}")
         else:
             os.mkdir(path_complete)
-            print(f"Created directory: {path_complete}")
 
         names = []
-        # Recursively find all .txt files in the subdirectory
-        for root, dirs, files in os.walk(exp_dir):
-            for file in files:
-                if file.endswith('.txt') and 'stream' in file:
-                    names.append(os.path.join(root, file[:-4]))  # Remove .txt extension
+        all_files = os.listdir(exp_dir)
+        for filename in all_files:
+            if filename.endswith('.txt') and not filename.startswith('.') and '_stream_' in filename:
+                names.append(filename[:-4])
         names.sort()
-        
-        # Debug: Print the number of files found
-        print(f"Found {len(names)} files")
-        print(f"First few files: {names[:min(5, len(names))]}")
 
         csi_matrices = []
         labels = []
@@ -100,39 +85,31 @@ if __name__ == '__main__':
 
                 for i_ant in range(1, n_tot):
                     if ll != csi_matrix[i_ant].shape[1]:
-                        print(f"Shape mismatch in antenna {i_ant}: expected {ll}, got {csi_matrix[i_ant].shape[1]}")
                         break
                 lengths.append(ll)
                 csi_matrices.append(np.asarray(csi_matrix))
                 labels.append(label)
                 csi_matrix = []
-                print(f"Added matrix with shape {csi_matrices[-1].shape} and label {label}")
 
-            # Extract activity label from filename (e.g., "J" from "AR1a_J1_stream_0")
-            label = os.path.basename(name).split('_')[1][0]
-            
-            # Debug: Print the extracted label
-            print(f"Extracted label: {label} from file: {os.path.basename(name)}")
+            label = subdir.split("_")[-1]
 
             if label not in csi_label_dict:
                 processed = False
-                print(f"Skipping label {label} not in dictionary {csi_label_dict}")
                 continue
             processed = True
 
-            label = convert_to_number(label, csi_label_dict)
+            print(name)
+
+            label = convert_to_grouped_number(label, csi_label_dict)
             if i_name % n_tot == 0:
                 prev_label = label
             elif label != prev_label:
                 print('error in ' + str(name))
                 break
 
-            name_file = name + '.txt'
+            name_file = exp_dir + name + '.txt'
             with open(name_file, "rb") as fp:  # Unpickling
                 stft_sum_1 = pickle.load(fp)
-                
-            # Debug: Print the shape of the loaded data
-            print(f"Loaded data shape: {stft_sum_1.shape}")
 
             stft_sum_1_log = stft_sum_1 - np.mean(stft_sum_1, axis=0, keepdims=True)
 
@@ -142,63 +119,100 @@ if __name__ == '__main__':
         if processed:
             # for the last block
             if len(csi_matrix) < n_tot:
-                print(f"Error in {name}: insufficient antennas. Got {len(csi_matrix)}, expected {n_tot}")
+                print('error in ' + str(name))
             ll = csi_matrix[0].shape[1]
 
             for i_ant in range(1, n_tot):
                 if ll != csi_matrix[i_ant].shape[1]:
-                    print(f"Error in {name}: shape mismatch in antenna {i_ant}. Expected {ll}, got {csi_matrix[i_ant].shape[1]}")
+                    print('error in ' + str(name))
                     error = True
             if not error:
                 lengths.append(ll)
                 csi_matrices.append(np.asarray(csi_matrix))
                 labels.append(label)
-                print(f"Added final matrix with shape {csi_matrices[-1].shape} and label {label}")
 
         if not error:
-            print(f"Total matrices: {len(csi_matrices)}, Total labels: {len(labels)}")
             csi_complete = []
             for i in range(len(labels)):
                 csi_complete.append(csi_matrices[i])
 
             window_length = args.windows_length  # number of windows considered
             stride_length = args.stride_lengths
-
-            print(f"Creating windows with length={window_length}, stride={stride_length}")
-            csi_matrices_wind, labels_wind = create_windows_antennas(csi_complete, labels, window_length, stride_length,
+            
+            # Define minimum required stream length for meaningful window generation
+            MIN_STREAM_LENGTH = 100  # Minimum time steps required in a stream (reduced from 300)
+            
+            # Override stride length to generate more windows
+            stride_length = 1  # Was using args.stride_lengths (typically 30)
+            
+            print(f"\nWindow generation parameters:")
+            print(f"  Window length: {window_length} time steps")
+            print(f"  Stride length: {stride_length} time steps (overridden to 1)")
+            print(f"  Minimum stream length: {MIN_STREAM_LENGTH} time steps")
+            
+            # Filter out streams that are too short
+            filtered_csi = []
+            filtered_labels = []
+            valid_streams = 0
+            skipped_streams = 0
+            
+            for i, csi_matrix in enumerate(csi_complete):
+                time_dim = csi_matrix.shape[1]  # Time steps in this stream
+                
+                # Calculate number of potential windows
+                num_windows = (time_dim - window_length) // stride_length + 1
+                
+                if time_dim < MIN_STREAM_LENGTH:
+                    print(f"  Skipping short stream {i}: {time_dim} < {MIN_STREAM_LENGTH} time steps")
+                    skipped_streams += 1
+                    continue
+                    
+                if num_windows < 2:
+                    print(f"  Skipping stream {i}: Would only generate {num_windows} window(s)")
+                    skipped_streams += 1
+                    continue
+                
+                print(f"  Stream {i}: Using for testing with {num_windows} potential windows")
+                filtered_csi.append(csi_matrix)
+                filtered_labels.append(labels[i])
+                valid_streams += 1
+            
+            if valid_streams == 0:
+                print(f"ERROR: No valid streams available for window generation")
+                print(f"Consider reducing MIN_STREAM_LENGTH or adjusting window/stride parameters")
+                continue  # Skip to the next subdirectory
+            
+            print(f"\nStream filtering summary:")
+            print(f"  Using {valid_streams} streams, skipped {skipped_streams} streams")
+            
+            # Generate windows from filtered streams
+            csi_matrices_wind, labels_wind = create_windows_antennas(filtered_csi, filtered_labels, 
+                                                                     window_length, stride_length,
                                                                      remove_mean=False)
+            
+            print(f"  Generated {len(csi_matrices_wind)} windows total")
 
-            num_windows = ((np.asarray(lengths) - window_length + stride_length) // stride_length)
-            print(f"Window length: {window_length}, Stride length: {stride_length}")
-            print(f"Lengths of data: {lengths}")  # Use correct variable name
-            print(f"Calculated number of windows: {num_windows}")
-            print(f"Actual number of windows: {len(csi_matrices_wind)}")             
-            if not len(csi_matrices_wind) == np.sum(num_windows):
-                print(f'ERROR - shapes mismatch: got {len(csi_matrices_wind)}, expected {np.sum(num_windows)}')
-            else:
-                print(f"Created {len(csi_matrices_wind)} windows successfully")
+            # Calculate expected number of windows
+            filtered_lengths = [csi.shape[1] for csi in filtered_csi]
+            expected_windows = np.floor((np.asarray(filtered_lengths)-window_length)/stride_length+1)
+            if not len(csi_matrices_wind) == np.sum(expected_windows):
+                print(f'WARNING - shapes mismatch: Expected {np.sum(expected_windows)} windows, got {len(csi_matrices_wind)}')
 
             names_complete = []
             suffix = '.txt'
             for ii in range(len(csi_matrices_wind)):
-                name_file = os.path.join(exp_dir, f'complete_antennas_{activities}', f'{ii}{suffix}')
+                name_file = exp_dir + 'complete_antennas_' + str(activities) + '/' + str(ii) + suffix
                 names_complete.append(name_file)
                 with open(name_file, "wb") as fp:  # Pickling
                     pickle.dump(csi_matrices_wind[ii], fp)
-            
-            print(f"Saved {len(names_complete)} window files")
-            
-
-            name_labels = os.path.join(exp_dir, f'labels_complete_antennas_{activities}{suffix}')
-            with open(name_labels, "wb") as fp:  # Pickling
-                pickle.dump(labels_wind, fp)
-                
-            name_f = os.path.join(exp_dir, f'files_complete_antennas_{activities}{suffix}')
+            name_labels = exp_dir + '/labels_complete_antennas_' + str(activities) + suffix
+            with open(name_labels, "wb") as fp:
+                # Convert numpy ints to Python ints before saving
+                labels_set = [int(label) for label in labels]
+                pickle.dump(labels_set, fp)
+            name_f = exp_dir + '/files_complete_antennas_' + str(activities) + suffix
             with open(name_f, "wb") as fp:  # Pickling
                 pickle.dump(names_complete, fp)
-                
-            name_f = os.path.join(exp_dir, f'num_windows_antennas_{activities}{suffix}')
+            name_f = exp_dir + '/num_windows_complete_antennas_' + str(activities) + suffix
             with open(name_f, "wb") as fp:  # Pickling
-                pickle.dump(num_windows, fp)
-                
-            print(f"Finished processing and saved metadata files")
+                pickle.dump(expected_windows, fp)

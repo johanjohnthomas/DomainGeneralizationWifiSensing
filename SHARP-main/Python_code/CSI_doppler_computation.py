@@ -123,5 +123,4 @@ if __name__ == '__main__':
             csi_d_profile_array[csi_d_profile_array < mt.pow(10, noise_lev)] = mt.pow(10, noise_lev)
 
             with open(path_doppler_name, "wb") as fp:  # Pickling
-                csi_d_profile_array = np.array(csi_d_profile_array, dtype=np.float32)
                 pickle.dump(csi_d_profile_array, fp)

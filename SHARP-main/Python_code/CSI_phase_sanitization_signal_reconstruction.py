@@ -22,13 +22,6 @@ import pickle
 import math as mt
 import os
 
-def is_valid_pickle(path):
-    try:
-        with open(path, 'rb') as f:
-            pickle.load(f)
-        return True
-    except:
-        return False
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
@@ -52,16 +45,16 @@ if __name__ == '__main__':
     for name in names:
         name_f = name[10:] + '.mat'
         stop = False
-        sub_dir_name = name_f.split('_stream')[0]
+        sub_dir_name = name_f[0:3]
         subdir_path = save_dir + sub_dir_name
 
         complete_path = subdir_path + '/' + name_f
-        #print(complete_path)
+        print(complete_path)
         if path.isfile(complete_path):
             stop = True
 
         if stop:
-            #print('Already processed')
+            print('Already processed')
             continue
 
         if not os.path.exists(subdir_path):
@@ -69,10 +62,7 @@ if __name__ == '__main__':
 
         name_file_save = subdir_path + '/' + name_f
         name_file = exp_dir + name + '.txt'
-        if not is_valid_pickle(name_file):
-            print(f"Corrupted pickle detected: {name_file}")
-            os.remove(name_file)  # Remove corrupted file
-            continue
+
         with open(name_file, "rb") as fp:  # Unpickling
             H_est = pickle.load(fp)
 

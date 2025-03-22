@@ -19,8 +19,7 @@ from optimization_utility import *
 from os import listdir
 import pickle
 from plots_utility import *
-import tempfile
-import os
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
@@ -167,14 +166,9 @@ if __name__ == '__main__':
                 r_optim[start_r_opt:end_r_opt, time_step] = complex_opt_r_refined
 
             name_file = './phase_processing/r_vector_' + name + '_stream_' + str(stream) + '.txt'
-            with tempfile.NamedTemporaryFile('wb', delete=False) as tmp:
-                pickle.dump(r_optim, tmp)
-                tmp_name = tmp.name
-            os.rename(tmp_name, name_file)
+            with open(name_file, "wb") as fp:  # Pickling
+                pickle.dump(r_optim, fp)
 
             name_file = './phase_processing/Tr_vector_' + name + '_stream_' + str(stream) + '.txt'
-            with tempfile.NamedTemporaryFile('wb', delete=False) as tmp:
-                pickle.dump(Tr_matrix, tmp)
-                tmp_name = tmp.name
-            os.rename(tmp_name, name_file)
-
+            with open(name_file, "wb") as fp:  # Pickling
+                pickle.dump(Tr_matrix, fp)

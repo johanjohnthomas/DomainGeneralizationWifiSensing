@@ -1,4 +1,3 @@
-
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -20,11 +19,22 @@ import matplotlib.gridspec as gridspec
 from matplotlib import rcParams
 import math as mt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+import os
 
+# Fix matplotlib configuration for newer versions
 rcParams['font.family'] = 'serif'
 rcParams['font.serif'] = 'Times'
-rcParams['text.usetex'] = 'true'
-rcParams['text.latex.preamble'] = r'\usepackage{newtxmath}'
+rcParams['text.usetex'] = True  # Changed from string to boolean
+
+# Fix for matplotlib 3.x - text.latex.preamble must be a string, not a list
+try:
+    # Try the newer API first
+    rcParams['text.latex.preamble'] = r'\usepackage{newtxmath}'
+except Exception as e:
+    print(f"Warning: Could not set LaTeX preamble: {e}")
+    # If that fails, disable LaTeX to allow the plots to work
+    rcParams['text.usetex'] = False
+    
 rcParams['font.size'] = 16
 
 
@@ -183,18 +193,18 @@ def plt_doppler_antennas(doppler_spectrum_list, sliding_lenght, delta_v, name_pl
 
 def plt_confusion_matrix(number_activities, confusion_matrix, activities, name):
     confusion_matrix_normaliz_row = np.transpose(confusion_matrix / np.sum(confusion_matrix, axis=1).reshape(-1, 1))
-    fig = plt.figure(constrained_layout=True)
+    fig = plt.figure()
     fig.set_size_inches(5.5, 4)
     ax = fig.add_axes((0.18, 0.15, 0.6, 0.8))
     im1 = ax.pcolor(np.linspace(0.5, number_activities + 0.5, number_activities + 1),
                     np.linspace(0.5, number_activities + 0.5, number_activities + 1),
                     confusion_matrix_normaliz_row, cmap='Blues', edgecolors='black', vmin=0, vmax=1)
-    ax.set_xlabel('Actual activity', FontSize=18)
+    ax.set_xlabel('Actual activity', fontsize=18)
     ax.set_xticks(np.linspace(1, number_activities, number_activities))
-    ax.set_xticklabels(labels=activities, FontSize=18)
+    ax.set_xticklabels(labels=activities, fontsize=18)
     ax.set_yticks(np.linspace(1, number_activities, number_activities))
-    ax.set_yticklabels(labels=activities, FontSize=18, rotation=45)
-    ax.set_ylabel('Predicted activity', FontSize=18)
+    ax.set_yticklabels(labels=activities, fontsize=18, rotation=45)
+    ax.set_ylabel('Predicted activity', fontsize=18)
 
     for x_ax in range(confusion_matrix_normaliz_row.shape[0]):
         for y_ax in range(confusion_matrix_normaliz_row.shape[1]):
@@ -208,144 +218,224 @@ def plt_confusion_matrix(number_activities, confusion_matrix, activities, name):
 
     cbar_ax = fig.add_axes([0.83, 0.15, 0.03, 0.8])
     cbar = fig.colorbar(im1, cax=cbar_ax)
-    cbar.ax.set_ylabel('Accuracy', FontSize=18)
+    cbar.ax.set_ylabel('Accuracy', fontsize=18)
     cbar.ax.tick_params(axis="y", labelsize=16)
 
-    plt.tight_layout()
+    # Create the plots directory if it doesn't exist
+    os.makedirs('./plots', exist_ok=True)
+    
+    # Save as PDF
     name_fig = './plots/cm_' + name + '.pdf'
     plt.savefig(name_fig)
+    
+    # Also save as PNG for better compatibility
+    name_fig_png = './plots/cm_' + name + '.png'
+    plt.savefig(name_fig_png)
+    
+    print(f"Saved confusion matrix plots to {name_fig} and {name_fig_png}")
+    plt.close()
 
 
 def plt_doppler_activities(doppler_spectrum_list, antenna, csi_label_dict, sliding_lenght, delta_v, name_plot):
-    fig = plt.figure(constrained_layout=True)
-    fig.set_size_inches(15, 3)
-    widths = [1, 1, 1, 1, 1, 0.5]
-    heights = [1]
-    gs = fig.add_gridspec(ncols=6, nrows=1, width_ratios=widths, height_ratios=heights)
-    step = 20
-    step_x = 5
-    ax = []
-    for a_i in range(5):
-        act = doppler_spectrum_list[a_i][antenna]
-        length_v = mt.floor(act.shape[1] / 2)
-        factor_v = step * (mt.floor(length_v / step))
-        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
-        ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+    try:
+        # Check if we have enough data to plot
+        if len(doppler_spectrum_list) == 0:
+            print(f"Error: No data available for activities plot {name_plot}")
+            return
+            
+        # Ensure we don't try to plot more activities than we have data for
+        num_activities = min(len(doppler_spectrum_list), 5)
+        
+        fig = plt.figure(constrained_layout=True)
+        fig.set_size_inches(15, 3)
+        widths = [1] * num_activities + [0.5]  # Adjust width ratios based on actual number of activities
+        heights = [1]
+        gs = fig.add_gridspec(ncols=num_activities+1, nrows=1, width_ratios=widths, height_ratios=heights)
+        step = 20
+        step_x = 5
+        ax = []
+        
+        for a_i in range(num_activities):
+            try:
+                # Make sure we have valid data for this activity and antenna
+                if a_i >= len(doppler_spectrum_list) or not doppler_spectrum_list[a_i]:
+                    print(f"Warning: Missing data for activity {a_i}")
+                    continue
+                    
+                # Check if the specified antenna exists for this activity
+                if antenna >= len(doppler_spectrum_list[a_i]):
+                    print(f"Warning: Activity {a_i} doesn't have data for antenna {antenna}")
+                    continue
+                
+                act = doppler_spectrum_list[a_i][antenna]
+                length_v = mt.floor(act.shape[1] / 2)
+                factor_v = step * (mt.floor(length_v / step))
+                ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+                ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
 
-        ax1 = fig.add_subplot(gs[(0, a_i)])
-        plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)  # , shading='gouraud')
-        plt1.set_edgecolor('face')
-        ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
-        ax1.set_xlabel(r'time [s]')
-        ax1.set_yticks(ticks_y + 0.5)
-        ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
-        ax1.set_xticks(ticks_x)
-        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+                ax1 = fig.add_subplot(gs[(0, a_i)])
+                plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
+                plt1.set_edgecolor('face')
+                ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+                ax1.set_xlabel(r'time [s]')
+                ax1.set_yticks(ticks_y + 0.5)
+                ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+                ax1.set_xticks(ticks_x)
+                ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
 
-        title_p = csi_label_dict[a_i]
-        ax1.set_title(title_p)
-        ax.append(ax1)
+                title_p = csi_label_dict[a_i] if a_i < len(csi_label_dict) else f"Activity {a_i}"
+                ax1.set_title(title_p)
+                ax.append(ax1)
 
-        if a_i == 4:
-            cbar_ax = fig.add_axes([0.92, 0.2, 0.01, 0.7])
-            cbar1 = fig.colorbar(plt1,  cax=cbar_ax, ticks=[-12, -8, -4, 0])
-            cbar1.ax.set_ylabel('normalized power [dB]')
+                # Add colorbar after the last activity
+                if a_i == num_activities - 1:
+                    cbar_ax = fig.add_axes([0.92, 0.2, 0.01, 0.7])
+                    cbar1 = fig.colorbar(plt1, cax=cbar_ax, ticks=[-12, -8, -4, 0])
+                    cbar1.ax.set_ylabel('normalized power [dB]')
+            except Exception as e:
+                print(f"Warning: Error processing activity {a_i} for activities plot: {e}")
+                continue
 
-    for axi in ax:
-        axi.label_outer()
-    plt.savefig(name_plot, bbox_inches='tight')
-    plt.close()
+        # Only apply label_outer if we have axes
+        if ax:
+            for axi in ax:
+                axi.label_outer()
+                
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(name_plot) or './', exist_ok=True)
+            
+        plt.savefig(name_plot, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"Error generating activities plot {name_plot}: {e}")
 
 
 def plt_doppler_activities_compact(doppler_spectrum_list, antenna, csi_label_dict, sliding_lenght, delta_v,
                                        name_plot):
-    fig = plt.figure(constrained_layout=True)
-    fig.set_size_inches(8, 5.5)
-    widths = [1, 1, 1, 1, 1, 1, 0.5]
-    heights = [1, 1]
-    gs = fig.add_gridspec(ncols=7, nrows=2, width_ratios=widths, height_ratios=heights)
-    step = 20
-    step_x = 5
-    ax = []
-    list_plts_pos_row = [0, 0, 1, 1, 1]
-    list_plts_pos_col_start = [1, 3, 0, 2, 4]
-    list_plts_pos_col_end = [3, 5, 2, 4, 6]
-    for a_i in range(5):
-        act = doppler_spectrum_list[a_i][antenna]
-        length_v = mt.floor(act.shape[1] / 2)
-        factor_v = step * (mt.floor(length_v / step))
-        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
-        ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
-
-        ax1 = fig.add_subplot(gs[list_plts_pos_row[a_i], list_plts_pos_col_start[a_i]:list_plts_pos_col_end[a_i]])
-        plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
-        plt1.set_edgecolor('face')
-        ax1.set_xlabel(r'time [s]')
-        ax1.set_yticks(ticks_y + 0.5)
-        if a_i == 0 or a_i == 2:
-            ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
-            ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+    try:
+        # Check if we have enough data to plot
+        if len(doppler_spectrum_list) == 0:
+            print(f"Error: No data available for compact activities plot {name_plot}")
+            return
+            
+        # Ensure we don't try to plot more activities than we have data for
+        num_activities = min(len(doppler_spectrum_list), 5)
+        
+        fig = plt.figure(constrained_layout=True)
+        fig.set_size_inches(8, 5.5)
+        
+        # Dynamically adjust grid size based on number of activities
+        if num_activities <= 3:
+            widths = [1] * num_activities + [0.5]
+            heights = [1]
+            gs = fig.add_gridspec(ncols=num_activities+1, nrows=1, width_ratios=widths, height_ratios=heights)
+            list_plts_pos_row = [0] * num_activities  # All in first row
+            list_plts_pos_col = list(range(num_activities))
         else:
-            ax1.set_yticklabels([])
-            ax1.set_ylabel('')
-        ax1.set_xticks(ticks_x)
-        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+            widths = [1, 1, 1, 1, 1, 1, 0.5]
+            heights = [1, 1]
+            gs = fig.add_gridspec(ncols=7, nrows=2, width_ratios=widths, height_ratios=heights)
+            # Original layout for 5 activities: 2 in top row, 3 in bottom row
+            list_plts_pos_row = [0, 0, 1, 1, 1][:num_activities]
+            list_plts_pos_col = [0, 1, 0, 1, 2][:num_activities]
+        
+        step = 20
+        step_x = 5
+        ax = []
+        
+        for a_i in range(num_activities):
+            try:
+                # Make sure we have valid data for this activity and antenna
+                if a_i >= len(doppler_spectrum_list) or not doppler_spectrum_list[a_i]:
+                    print(f"Warning: Missing data for activity {a_i}")
+                    continue
+                    
+                # Check if the specified antenna exists for this activity
+                if antenna >= len(doppler_spectrum_list[a_i]):
+                    print(f"Warning: Activity {a_i} doesn't have data for antenna {antenna}")
+                    continue
+                
+                act = doppler_spectrum_list[a_i][antenna]
+                length_v = mt.floor(act.shape[1] / 2)
+                factor_v = step * (mt.floor(length_v / step))
+                ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+                ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
 
-        title_p = csi_label_dict[a_i]
-        ax1.set_title(title_p)
-        ax.append(ax1)
+                row_idx = list_plts_pos_row[a_i]
+                col_idx = list_plts_pos_col[a_i]
+                
+                ax1 = fig.add_subplot(gs[row_idx, col_idx])
+                plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
+                plt1.set_edgecolor('face')
+                ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+                ax1.set_xlabel(r'time [s]')
+                ax1.set_yticks(ticks_y + 0.5)
+                ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+                ax1.set_xticks(ticks_x)
+                ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
 
-        if a_i == 1 or a_i == 4:
-            cbar_ax = fig.add_axes([0.98, 0.2, 0.02, 0.7])
-            cbar1 = fig.colorbar(plt1,  cax=cbar_ax, ticks=[-12, -8, -4, 0])
-            cbar1.ax.set_ylabel('normalized power [dB]')
+                title_p = csi_label_dict[a_i] if a_i < len(csi_label_dict) else f"Activity {a_i}"
+                ax1.set_title(title_p)
+                ax.append(ax1)
 
-    plt.savefig(name_plot, bbox_inches='tight')
-    plt.close()
+                # Add colorbar after the last activity
+                if a_i == num_activities - 1:
+                    if num_activities <= 3:
+                        cbar_ax = fig.add_axes([0.92, 0.2, 0.01, 0.7])
+                    else:
+                        cbar_ax = fig.add_axes([0.92, 0.1, 0.01, 0.8])
+                    cbar1 = fig.colorbar(plt1, cax=cbar_ax, ticks=[-12, -8, -4, 0])
+                    cbar1.ax.set_ylabel('normalized power [dB]')
+            except Exception as e:
+                print(f"Warning: Error processing activity {a_i} for compact activities plot: {e}")
+                continue
+
+        # Only apply label_outer if we have axes
+        if ax:
+            for axi in ax:
+                axi.label_outer()
+                
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(name_plot) or './', exist_ok=True)
+            
+        plt.savefig(name_plot, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"Error generating compact activities plot {name_plot}: {e}")
 
 
 def plt_doppler_activity_single(input_a, antenna, sliding_lenght, delta_v, name_plot):
-    fig = plt.figure(constrained_layout=True)
-    fig.set_size_inches(3, 3)
-    step = 20
-    step_x = 5
-    act = input_a[antenna][:340, :]
-    length_v = mt.floor(act.shape[1] / 2)
-    factor_v = step * (mt.floor(length_v / step))
-    ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
-    ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+    try:
+        # Check if we have any data to plot
+        if input_a is None or not input_a or antenna >= len(input_a):
+            print(f"Warning: No data available for single activity plot {name_plot}")
+            return
+            
+        fig = plt.figure(constrained_layout=True)
+        fig.set_size_inches(3, 3)
+        step = 20
+        step_x = 5
+        
+        # Get the data and crop it safely
+        try:
+            act = input_a[antenna]
+            
+            # Limit to first 340 time steps if available
+            max_time_steps = 340
+            actual_time_steps = min(act.shape[0], max_time_steps)
+            act = act[:actual_time_steps, :]
+            
+            length_v = mt.floor(act.shape[1] / 2)
+            factor_v = step * (mt.floor(length_v / step))
+            ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+            ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+        except Exception as e:
+            print(f"Warning: Error processing data for single activity plot: {e}")
+            return
 
-    ax1 = fig.add_subplot()
-    plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
-    plt1.set_edgecolor('face')
-    ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
-    ax1.set_xlabel(r'time [s]')
-    ax1.set_yticks(ticks_y + 0.5)
-    ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
-    ax1.set_xticks(ticks_x)
-    ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 1))
-
-    plt.savefig(name_plot, bbox_inches='tight')
-    plt.close()
-
-
-def plt_doppler_comparison(doppler_spectrum_list, csi_label_dict, sliding_lenght, delta_v, name_plot):
-    fig = plt.figure(constrained_layout=True)
-    fig.set_size_inches(15, 3)
-    widths = [1, 1, 1, 1, 1, 0.5]
-    heights = [1]
-    gs = fig.add_gridspec(ncols=6, nrows=1, width_ratios=widths, height_ratios=heights)
-    step = 20
-    step_x = 5
-    ax = []
-    for a_i in range(5):
-        act = doppler_spectrum_list[a_i]
-        length_v = mt.floor(act.shape[1] / 2)
-        factor_v = step * (mt.floor(length_v / step))
-        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
-        ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
-
-        ax1 = fig.add_subplot(gs[(0, int(a_i))])
+        ax1 = fig.add_subplot()
         plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
         plt1.set_edgecolor('face')
         ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
@@ -353,22 +443,78 @@ def plt_doppler_comparison(doppler_spectrum_list, csi_label_dict, sliding_lenght
         ax1.set_yticks(ticks_y + 0.5)
         ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
         ax1.set_xticks(ticks_x)
-        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 1))
 
-        title_p = csi_label_dict[a_i]
-        ax1.set_title(title_p)
-        ax.append(ax1)
+        # Create directories if needed
+        os.makedirs(os.path.dirname(name_plot) or './', exist_ok=True)
+        
+        plt.savefig(name_plot, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"Warning: Error creating single activity plot {name_plot}: {e}")
 
-        if a_i == 4:
-            cbar_ax = fig.add_axes([0.92, 0.2, 0.01, 0.7])
-            cbar1 = fig.colorbar(plt1,  cax=cbar_ax, ticks=[-30, -25, -20, -15, -10, -5, 0])
-            cbar1.ax.set_ylabel('normalized power [dB]')
 
-    for axi in ax:
-        axi.label_outer()
+def plt_doppler_comparison(doppler_spectrum_list, csi_label_dict, sliding_lenght, delta_v, name_plot):
+    try:
+        # Check if we have enough data to plot
+        if len(doppler_spectrum_list) == 0:
+            print(f"Error: No data available for comparison plot {name_plot}")
+            return
+            
+        # Ensure we don't try to plot more activities than we have data for
+        num_activities = min(len(doppler_spectrum_list), 5)
+        
+        fig = plt.figure(constrained_layout=True)
+        fig.set_size_inches(15, 3)
+        widths = [1] * num_activities + [0.5]  # Adjust width ratios based on actual number of activities
+        heights = [1]
+        gs = fig.add_gridspec(ncols=num_activities+1, nrows=1, width_ratios=widths, height_ratios=heights)
+        step = 20
+        step_x = 5
+        ax = []
+        
+        for a_i in range(num_activities):
+            try:
+                act = doppler_spectrum_list[a_i]
+                length_v = mt.floor(act.shape[1] / 2)
+                factor_v = step * (mt.floor(length_v / step))
+                ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+                ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
 
-    plt.savefig(name_plot, bbox_inches='tight')
-    plt.close()
+                ax1 = fig.add_subplot(gs[(0, int(a_i))])
+                plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
+                plt1.set_edgecolor('face')
+                ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+                ax1.set_xlabel(r'time [s]')
+                ax1.set_yticks(ticks_y + 0.5)
+                ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+                ax1.set_xticks(ticks_x)
+                ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+
+                title_p = csi_label_dict[a_i] if a_i < len(csi_label_dict) else f"Activity {a_i}"
+                ax1.set_title(title_p)
+                ax.append(ax1)
+
+                if a_i == num_activities - 1:  # Add colorbar after the last activity
+                    cbar_ax = fig.add_axes([0.92, 0.2, 0.01, 0.7])
+                    cbar1 = fig.colorbar(plt1, cax=cbar_ax, ticks=[-30, -25, -20, -15, -10, -5, 0])
+                    cbar1.ax.set_ylabel('normalized power [dB]')
+            except Exception as e:
+                print(f"Warning: Error processing activity {a_i} for comparison plot: {e}")
+                continue
+
+        for axi in ax:
+            axi.label_outer()
+
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(name_plot) or './', exist_ok=True)
+        
+        plt.savefig(name_plot, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"Error generating comparison plot {name_plot}: {e}")
 
 
 def plt_amplitude_phase(ampl, phase_raw, phase_proc, name_plot):
@@ -607,47 +753,117 @@ def plt_phase(phase_raw, phase_proc, name_plot):
 
 
 def plt_fft_doppler_activities(doppler_spectrum_list, antenna, csi_label_dict, sliding_lenght, delta_v, name_plot):
+    # Check if we have any data to plot
+    if not doppler_spectrum_list or len(doppler_spectrum_list) == 0:
+        print(f"Warning: No doppler spectrum data available for {name_plot}")
+        return
+        
+    # Determine how many activities we actually have data for
+    num_activities = min(len(doppler_spectrum_list), len(csi_label_dict), 5)
+    
+    if num_activities == 0:
+        print(f"Warning: No activities to plot for {name_plot}")
+        return
+    
+    # Error checking for antenna index
+    for a_i in range(num_activities):
+        if a_i >= len(doppler_spectrum_list) or not doppler_spectrum_list[a_i] or antenna >= len(doppler_spectrum_list[a_i]):
+            print(f"Warning: Missing data for activity {a_i} antenna {antenna} in {name_plot}")
+            num_activities = a_i
+            break
+    
+    # If no valid activities, exit
+    if num_activities == 0:
+        print(f"Warning: No valid activities found for plotting in {name_plot}")
+        return
+    
+    # Adjust figure size based on available activities
     fig = plt.figure(constrained_layout=True)
-    fig.set_size_inches(15, 3)
-    widths = [1, 1, 1, 1, 1, 0.5]
+    fig.set_size_inches(3 * num_activities, 3)
+    widths = [1] * num_activities + [0.5]
     heights = [1]
-    gs = fig.add_gridspec(ncols=6, nrows=1, width_ratios=widths, height_ratios=heights)
+    gs = fig.add_gridspec(ncols=num_activities+1, nrows=1, width_ratios=widths, height_ratios=heights)
     step = 20
     step_x = 5
     ax = []
-    for a_i in range(5):
-        act = doppler_spectrum_list[a_i][antenna]
-        length_v = mt.floor(act.shape[1] / 2)
-        factor_v = step * (mt.floor(length_v / step))
-        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
-        ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+    
+    last_plt = None
+    
+    # Plot the available activities
+    for a_i in range(num_activities):
+        try:
+            act = doppler_spectrum_list[a_i][antenna]
+            length_v = mt.floor(act.shape[1] / 2)
+            factor_v = step * (mt.floor(length_v / step))
+            ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+            ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
 
-        ax1 = fig.add_subplot(gs[(0, a_i)])
-        plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)  # , shading='gouraud')
-        plt1.set_edgecolor('face')
-        ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
-        ax1.set_xlabel(r'time [s]')
-        ax1.set_yticks(ticks_y + 0.5)
-        ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
-        ax1.set_xticks(ticks_x)
-        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+            ax1 = fig.add_subplot(gs[(0, a_i)])
+            plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
+            plt1.set_edgecolor('face')
+            ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+            ax1.set_xlabel(r'time [s]')
+            ax1.set_yticks(ticks_y + 0.5)
+            ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+            ax1.set_xticks(ticks_x)
+            ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
 
-        title_p = csi_label_dict[a_i]
-        ax1.set_title(title_p)
-        ax.append(ax1)
+            # Handle label index safely
+            if a_i < len(csi_label_dict):
+                title_p = csi_label_dict[a_i]
+            else:
+                title_p = f"Activity {a_i}"
+                
+            ax1.set_title(title_p)
+            ax.append(ax1)
+            last_plt = plt1
+            
+        except Exception as e:
+            print(f"Warning: Error plotting activity {a_i}: {e}")
+            continue
 
-        if a_i == 4:
-            cbar_ax = fig.add_axes([0.92, 0.2, 0.01, 0.7])
-            cbar1 = fig.colorbar(plt1,  cax=cbar_ax, ticks=[-12, -8, -4, 0])
-            cbar1.ax.set_ylabel('normalized power [dB]')
+    # Add colorbar if we plotted anything
+    if last_plt is not None and num_activities > 0:
+        cbar_ax = fig.add_axes([0.92, 0.2, 0.01, 0.7])
+        cbar1 = fig.colorbar(last_plt, cax=cbar_ax, ticks=[-12, -8, -4, 0])
+        cbar1.ax.set_ylabel('normalized power [dB]')
 
     for axi in ax:
         axi.label_outer()
+    
+    # Create directories if needed
+    os.makedirs(os.path.dirname(name_plot) or './', exist_ok=True)
+    
     plt.savefig(name_plot, bbox_inches='tight')
     plt.close()
 
 
 def plt_fft_doppler_activities_compact(doppler_spectrum_list, antenna, csi_label_dict, sliding_lenght, delta_v, name_plot):
+    # Check if we have any data to plot
+    if not doppler_spectrum_list or len(doppler_spectrum_list) == 0:
+        print(f"Warning: No doppler spectrum data available for {name_plot}")
+        return
+        
+    # Determine how many activities we actually have data for
+    num_activities = min(len(doppler_spectrum_list), len(csi_label_dict), 5)
+    
+    if num_activities == 0:
+        print(f"Warning: No activities to plot for {name_plot}")
+        return
+    
+    # Error checking for antenna index
+    for a_i in range(num_activities):
+        if a_i >= len(doppler_spectrum_list) or not doppler_spectrum_list[a_i] or antenna >= len(doppler_spectrum_list[a_i]):
+            print(f"Warning: Missing data for activity {a_i} antenna {antenna} in {name_plot}")
+            num_activities = a_i
+            break
+    
+    # If no valid activities, exit
+    if num_activities == 0:
+        print(f"Warning: No valid activities found for plotting in {name_plot}")
+        return
+    
+    # Create a more adaptive layout based on available activities
     fig = plt.figure(constrained_layout=True)
     fig.set_size_inches(8, 5.5)
     widths = [1, 1, 1, 1, 1, 1, 0.5]
@@ -656,45 +872,97 @@ def plt_fft_doppler_activities_compact(doppler_spectrum_list, antenna, csi_label
     step = 20
     step_x = 5
     ax = []
+    
+    # Define positions for up to 5 activities
     list_plts_pos_row = [0, 0, 1, 1, 1]
     list_plts_pos_col_start = [1, 3, 0, 2, 4]
     list_plts_pos_col_end = [3, 5, 2, 4, 6]
-    for a_i in range(5):
-        act = doppler_spectrum_list[a_i][antenna]
-        length_v = mt.floor(act.shape[1] / 2)
-        factor_v = step * (mt.floor(length_v / step))
-        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
-        ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+    last_plt = None
+    
+    # Plot the available activities
+    for a_i in range(num_activities):
+        try:
+            if a_i >= len(list_plts_pos_row):
+                print(f"Warning: No layout position defined for activity {a_i} in {name_plot}")
+                continue
+                
+            act = doppler_spectrum_list[a_i][antenna]
+            length_v = mt.floor(act.shape[1] / 2)
+            factor_v = step * (mt.floor(length_v / step))
+            ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+            ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
 
-        ax1 = fig.add_subplot(gs[list_plts_pos_row[a_i], list_plts_pos_col_start[a_i]:list_plts_pos_col_end[a_i]])
-        plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)  # , shading='gouraud')
-        plt1.set_edgecolor('face')
-        ax1.set_xlabel(r'time [s]')
-        ax1.set_yticks(ticks_y + 0.5)
-        if a_i == 0 or a_i == 2:
-            ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
-            ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
-        else:
-            ax1.set_yticklabels([])
-            ax1.set_ylabel('')
-        ax1.set_xticks(ticks_x)
-        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+            ax1 = fig.add_subplot(gs[list_plts_pos_row[a_i], list_plts_pos_col_start[a_i]:list_plts_pos_col_end[a_i]])
+            plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
+            plt1.set_edgecolor('face')
+            ax1.set_xlabel(r'time [s]')
+            ax1.set_yticks(ticks_y + 0.5)
+            if a_i == 0 or a_i == 2:
+                ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+                ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+            else:
+                ax1.set_yticklabels([])
+                ax1.set_ylabel('')
+            ax1.set_xticks(ticks_x)
+            ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
 
-        title_p = csi_label_dict[a_i]
-        ax1.set_title(title_p)
-        ax.append(ax1)
+            # Handle label index safely
+            if a_i < len(csi_label_dict):
+                title_p = csi_label_dict[a_i]
+            else:
+                title_p = f"Activity {a_i}"
+                
+            ax1.set_title(title_p)
+            ax.append(ax1)
+            last_plt = plt1
+            
+        except Exception as e:
+            print(f"Warning: Error plotting activity {a_i}: {e}")
+            continue
 
-        if a_i == 1 or a_i == 4:
+    # Add colorbar if we plotted anything and have plotted either activity 1 or 4
+    if last_plt is not None and num_activities > 0:
+        try:
             cbar_ax = fig.add_axes([0.98, 0.2, 0.02, 0.7])
-            cbar1 = fig.colorbar(plt1,  cax=cbar_ax, ticks=[-12, -8, -4, 0])
+            cbar1 = fig.colorbar(last_plt, cax=cbar_ax, ticks=[-12, -8, -4, 0])
             cbar1.ax.set_ylabel('normalized power [dB]')
+        except Exception as e:
+            print(f"Warning: Error creating colorbar: {e}")
 
+    # Create directories if needed
+    os.makedirs(os.path.dirname(name_plot) or './', exist_ok=True)
+    
     plt.savefig(name_plot, bbox_inches='tight')
     plt.close()
 
 
 def plt_fft_doppler_activities_compact_2(doppler_spectrum_list, antenna, csi_label_dict, sliding_lenght,
                                          delta_v, name_plot):
+    # Check if we have any data to plot
+    if not doppler_spectrum_list or len(doppler_spectrum_list) == 0:
+        print(f"Warning: No doppler spectrum data available for {name_plot}")
+        return
+        
+    # Determine how many activities we actually have data for
+    num_activities = min(len(doppler_spectrum_list), len(csi_label_dict), 4)  # This function expects at most 4 activities
+    
+    if num_activities == 0:
+        print(f"Warning: No activities to plot for {name_plot}")
+        return
+    
+    # Error checking for antenna index
+    for a_i in range(num_activities):
+        if a_i >= len(doppler_spectrum_list) or not doppler_spectrum_list[a_i] or antenna >= len(doppler_spectrum_list[a_i]):
+            print(f"Warning: Missing data for activity {a_i} antenna {antenna} in {name_plot}")
+            num_activities = a_i
+            break
+    
+    # If no valid activities, exit
+    if num_activities == 0:
+        print(f"Warning: No valid activities found for plotting in {name_plot}")
+        return
+    
+    # Adapt figure for available activities
     fig = plt.figure(constrained_layout=True)
     fig.set_size_inches(6, 5.5)
     widths = [1, 1, 0.5]
@@ -703,62 +971,113 @@ def plt_fft_doppler_activities_compact_2(doppler_spectrum_list, antenna, csi_lab
     step = 20
     step_x = 5
     ax = []
+    
+    # Define positions for activities
     list_plts_pos_row = [0, 0, 1, 1]
     list_plts_pos_col = [0, 1, 0, 1]
-    for a_i in range(4):
-        act = doppler_spectrum_list[a_i][antenna]
-        length_v = mt.floor(act.shape[1] / 2)
-        factor_v = step * (mt.floor(length_v / step))
-        ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
-        ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+    last_plt = None
+    
+    # Plot the available activities
+    for a_i in range(num_activities):
+        try:
+            if a_i >= len(list_plts_pos_row):
+                print(f"Warning: No layout position defined for activity {a_i} in {name_plot}")
+                continue
+                
+            act = doppler_spectrum_list[a_i][antenna]
+            length_v = mt.floor(act.shape[1] / 2)
+            factor_v = step * (mt.floor(length_v / step))
+            ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+            ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
 
-        ax1 = fig.add_subplot(gs[list_plts_pos_row[a_i], list_plts_pos_col[a_i]])
-        plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)  # , shading='gouraud')
-        plt1.set_edgecolor('face')
-        ax1.set_xlabel(r'time [s]')
-        ax1.set_yticks(ticks_y + 0.5)
-        if a_i == 0 or a_i == 2:
-            ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
-            ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
-        else:
-            ax1.set_yticklabels([])
-            ax1.set_ylabel('')
-        ax1.set_xticks(ticks_x)
-        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
+            ax1 = fig.add_subplot(gs[list_plts_pos_row[a_i], list_plts_pos_col[a_i]])
+            plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
+            plt1.set_edgecolor('face')
+            ax1.set_xlabel(r'time [s]')
+            ax1.set_yticks(ticks_y + 0.5)
+            if a_i == 0 or a_i == 2:
+                ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+                ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+            else:
+                ax1.set_yticklabels([])
+                ax1.set_ylabel('')
+            ax1.set_xticks(ticks_x)
+            ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 2))
 
-        title_p = csi_label_dict[a_i]
-        ax1.set_title(title_p)
-        ax.append(ax1)
+            # Handle label index safely
+            if a_i < len(csi_label_dict):
+                title_p = csi_label_dict[a_i]
+            else:
+                title_p = f"Activity {a_i}"
+                
+            ax1.set_title(title_p)
+            ax.append(ax1)
+            last_plt = plt1
+            
+        except Exception as e:
+            print(f"Warning: Error plotting activity {a_i}: {e}")
+            continue
 
-        if a_i == 1:
+    # Add colorbar if we plotted anything
+    if last_plt is not None and num_activities > 0:
+        try:
             cbar_ax = fig.add_axes([0.9, 0.2, 0.03, 0.7])
-            cbar1 = fig.colorbar(plt1,  cax=cbar_ax, ticks=[-12, -8, -4, 0])
+            cbar1 = fig.colorbar(last_plt, cax=cbar_ax, ticks=[-12, -8, -4, 0])
             cbar1.ax.set_ylabel('normalized power [dB]')
+        except Exception as e:
+            print(f"Warning: Error creating colorbar: {e}")
 
+    # Create directories if needed
+    os.makedirs(os.path.dirname(name_plot) or './', exist_ok=True)
+    
     plt.savefig(name_plot, bbox_inches='tight')
     plt.close()
 
 
 def plt_fft_doppler_activity_single(input_a, antenna, sliding_lenght, delta_v, name_plot):
-    fig = plt.figure(constrained_layout=True)
-    fig.set_size_inches(3, 3)
-    step = 20
-    step_x = 5
-    act = input_a[antenna][:340, :]
-    length_v = mt.floor(act.shape[1] / 2)
-    factor_v = step * (mt.floor(length_v / step))
-    ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
-    ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+    try:
+        # Check if we have any data to plot
+        if input_a is None or not input_a or antenna >= len(input_a):
+            print(f"Warning: No data available for single activity plot {name_plot}")
+            return
+            
+        fig = plt.figure(constrained_layout=True)
+        fig.set_size_inches(3, 3)
+        step = 20
+        step_x = 5
+        
+        # Get the data and crop it safely
+        try:
+            act = input_a[antenna]
+            
+            # Limit to first 340 time steps if available
+            max_time_steps = 340
+            actual_time_steps = min(act.shape[0], max_time_steps)
+            act = act[:actual_time_steps, :]
+            
+            length_v = mt.floor(act.shape[1] / 2)
+            factor_v = step * (mt.floor(length_v / step))
+            ticks_y = np.arange(length_v - factor_v, length_v + factor_v + 1, step)
+            ticks_x = np.arange(0, act.shape[0] + 1, int(act.shape[0]/step_x))
+        except Exception as e:
+            print(f"Warning: Error processing data for single activity plot: {e}")
+            return
 
-    ax1 = fig.add_subplot()
-    plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)  # , shading='gouraud')
-    plt1.set_edgecolor('face')
-    ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
-    ax1.set_xlabel(r'time [s]')
-    ax1.set_yticks(ticks_y + 0.5)
-    ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
-    ax1.set_xticks(ticks_x)
-    ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 1))
+        ax1 = fig.add_subplot()
+        plt1 = ax1.pcolormesh(act.T, cmap='viridis', linewidth=0, rasterized=True)
+        plt1.set_edgecolor('face')
+        ax1.set_ylabel(r'$v_p \cos \alpha_p$ [m/s]')
+        ax1.set_xlabel(r'time [s]')
+        ax1.set_yticks(ticks_y + 0.5)
+        ax1.set_yticklabels(np.round((ticks_y - length_v) * delta_v, 2))
+        ax1.set_xticks(ticks_x)
+        ax1.set_xticklabels(np.round(ticks_x * sliding_lenght * 6e-3, 1))
 
-    plt.savefig(name_plot, bbox_inches='tight')
-    plt.close()
+        # Create directories if needed
+        os.makedirs(os.path.dirname(name_plot) or './', exist_ok=True)
+        
+        plt.savefig(name_plot, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"Warning: Error creating single activity plot {name_plot}: {e}")

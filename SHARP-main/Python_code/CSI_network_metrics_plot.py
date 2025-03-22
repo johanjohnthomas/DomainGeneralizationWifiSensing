@@ -1,4 +1,3 @@
-
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -17,33 +16,46 @@
 import argparse
 import numpy as np
 import pickle
+import os
 from plots_utility import plt_confusion_matrix
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('name_file', help='Name of the file')
-    parser.add_argument('activities', help='Activities to be considered')
+    parser.add_argument('name_file', help='Name of the output image file (without extension)')
     args = parser.parse_args()
 
-    name_file = args.name_file  # string
-    csi_act = args.activities
-    activities = []
-    for lab_act in csi_act.split(','):
-        activities.append(lab_act)
-    activities = np.asarray(activities)
+    name_file = args.name_file  # Name for the output image file
+    
+    # Fixed activities list based on the project's standard activities
+    activities = np.array(['E', 'W', 'R', 'J', 'L', 'S', 'C', 'G'])
 
     folder_name = './outputs/'
 
-    name_file = folder_name + name_file + '.txt'
+    # Find the latest metrics file
+    latest_file = None
+    for file in os.listdir(folder_name):
+        if file.startswith('complete_different_') and file.endswith('.txt'):
+            if latest_file is None or os.path.getmtime(os.path.join(folder_name, file)) > os.path.getmtime(os.path.join(folder_name, latest_file)):
+                latest_file = file
+    
+    if latest_file is None:
+        print("No metrics file found in outputs directory")
+        exit(1)
+        
+    metrics_file = os.path.join(folder_name, latest_file)
+    print(f"Using metrics file: {metrics_file}")
 
-    with open(name_file, "rb") as fp:  # Pickling
+    with open(metrics_file, "rb") as fp:  # Pickling
         conf_matrix_dict = pickle.load(fp)
+    
     conf_matrix = conf_matrix_dict['conf_matrix']
     conf_matrix_max_merge = conf_matrix_dict['conf_matrix_max_merge']
 
-    name_plot = args.name_file
+    name_plot = name_file
     plt_confusion_matrix(activities.shape[0], conf_matrix, activities=activities, name=name_plot)
+    print(f"Created confusion matrix plot: {name_plot}.png")
 
-    name_plot = args.name_file + '_max_merge'
+    name_plot = name_file + '_max_merge'
     plt_confusion_matrix(activities.shape[0], conf_matrix_max_merge, activities=activities, name=name_plot)
+    print(f"Created max merge confusion matrix plot: {name_plot}.png")

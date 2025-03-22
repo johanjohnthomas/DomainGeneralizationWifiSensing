@@ -1,378 +1,274 @@
-# Define variables for directories and parameters
+# Fixed Configuration Variables
 INPUT_DIR = ../input_files/
-OUTPUT_DIR = ./processed_phase/
+PROCESSED_PHASE_DIR = ./processed_phase/
 DOPPLER_DIR = ./doppler_traces/
-NSS = 1  # Number of spatial streams
-NCORE = 4  # Number of cores
-START_IDX = 0  # Index to start processing
-SAMPLE_LENGTH = 31  # Number of packets in a sample
-SLIDING = 1  # Number of packets for sliding operations
-NOISE_LEVEL = -1.2  # Noise level for thresholding
-WINDOWS_LENGTH = 100  # Number of samples per window
-STRIDE_LENGTHS = 30  # Number of samples for window sliding
-FEATURE_LENGTH = 100  # Length along the feature dimension (height)
-BATCH_SIZE = 16  # Number of samples in a batch
-NAME_BASE = single_ant.keras   # Name prefix for the files
-ACTIVITIES = C,C1,C2,E,E1,E2,H,H1,H2,J,J1,J2,J3,L,L1,L2,L3,R,R1,R2,S,W,W1,W2  # Activities to be considered
-NUM_TOT = 4
-# Undersampling parameters
-ENABLE_UNDERSAMPLE = --undersample  # Set to empty string to disable
-UNDERSAMPLE_RATIO = 1.0  # 1.0 = fully balanced, 0.0 = no balancing
+DATASET_DIR = ./datasets/
+MODEL_DIR = ./models/
+RESULTS_DIR = ./results/
 
-# Define the commands for each step
-PREPROCESS_CMD = for subdir in $(INPUT_DIR)AR-*; do \
-    dir_name=$$(basename "$$subdir"); \
-    python CSI_phase_sanitization_signal_preprocessing.py "$$subdir/" 1 - $(NSS) $(NCORE) $(START_IDX); \
-done
-H_ESTIMATION_CMD = python parallel_h_estimation.py
-RECONSTRUCTION_CMD = for subdir in $(INPUT_DIR)AR-*; do \
-    dir_name=$$(basename "$$subdir"); \
-    python CSI_phase_sanitization_signal_reconstruction.py ./phase_processing/ $(OUTPUT_DIR) $(NSS) $(NCORE) $(START_IDX) -1; \
-done
-SUBDIRS_DOPPLER = AR7a_J3,AR8a_J2,AR9a_J2,AR3a_R,AR6a_W2,AR8b_L1,AR1a_S,AR8b_J2,AR1d_S,AR1a_E,AR2a_J1,AR9b_W2,AR5a_R,AR2a_J2,AR5a_J2,AR9c_J2,AR1c_S,AR1c_H,AR6a_R2,AR1e_J1,AR5a_L,AR1e_L,AR3a_S,AR9c_L1,AR6a_J1,AR8a_R2,AR4a_C1,AR9b_J1,AR8a_R1,AR7a_W,AR9a_J1,AR1c_W,AR5b_W,AR2a_H,AR9c_R2,AR4a_R,AR1b_E,AR1c_C,AR1b_J1,AR2a_L,AR9b_L3,AR8b_J1,AR2a_W,AR6a_L2,AR6a_W1,AR8b_W1,AR8b_W2,AR9a_L2,AR3b_R,AR3a_H1,AR9c_W1,AR7a_R,AR5b_J1,AR4a_J2,AR8b_E1,AR6a_E,AR1e_W,AR7a_L2,AR1d_C1,AR7a_S,AR8a_L1,AR3a_C2,AR1e_J2,AR1d_C2,AR4a_C2,AR8a_L3,AR7a_C,AR3b_E,AR3b_W,AR1d_E,AR9c_L3,AR3a_J1,AR1a_J1,AR3a_W,AR1d_J,AR1a_J2,AR4a_E,AR1a_C,AR1d_W,AR5a_H,AR6a_J2,AR9b_W1,AR3a_J2,AR7a_J2,AR3b_J1,AR1b_W,AR5a_C,AR8a_E1,AR2a_S,AR4a_W,AR5a_S,AR9c_J3,AR3b_L,AR8a_J1,AR5b_J2,AR1a_H,AR8a_W1,AR1c_E,AR1d_L,AR9a_L1,AR1a_W,AR9a_E,AR3b_J2,AR8a_W2,AR3a_L,AR1a_L,AR4a_J1,AR7a_H,AR4a_S,AR7a_J1,AR9a_W2,AR1c_J1,AR4a_H1,AR3a_C1,AR9b_L2,AR9b_J2,AR1b_S,AR5b_R,AR7a_L1,AR1c_L,AR9b_E,AR3a_H2,AR3a_E,AR8b_E2,AR8b_L2,AR6a_J3,AR9b_L1,AR5a_E,AR1b_L,AR2a_C,AR1a_R,AR9c_W2,AR8a_E2,AR9c_J1,AR6a_R1,AR9a_R1,AR9c_L2,AR9a_R2,AR7a_E,AR8a_L2,AR1d_H,AR2a_E,AR6a_L1,AR9a_W1,AR5b_L,AR1b_R,AR9b_R1,AR9c_E,AR1d_R,AR9c_R1,AR2a_R,AR1b_H,AR1c_R,AR1e_R,AR4a_L,AR5a_W,AR5a_J1,AR4a_H2,AR1c_J2,AR1e_E,AR1b_C,AR5b_E,AR9b_R2,AR1b_J2
-DOPPLER_CMD = python CSI_doppler_computation.py $(OUTPUT_DIR) "$(SUBDIRS_DOPPLER)" $(DOPPLER_DIR) 0 0 $(SAMPLE_LENGTH) $(SLIDING) $(NOISE_LEVEL)
-CREATE_DATASET_TRAIN_CMD = python CSI_doppler_create_dataset_train.py $(DOPPLER_DIR) $(SUBDIRS_TRAIN) $(SAMPLE_LENGTH) $(SLIDING) $(WINDOWS_LENGTH) $(STRIDE_LENGTHS) $(ACTIVITIES) 4
-CREATE_DATASET_TEST_CMD = python CSI_doppler_create_dataset_test.py $(DOPPLER_DIR) $(SUBDIRS_TEST) $(SAMPLE_LENGTH) $(SLIDING) $(WINDOWS_LENGTH) $(STRIDE_LENGTHS) $(ACTIVITIES) 4
-TRAIN_CMD = python CSI_network.py $(DOPPLER_DIR) $(SUBDIRS_TRAIN) $(WINDOWS_LENGTH) $(FEATURE_LENGTH) 1 $(BATCH_SIZE) $(NUM_TOT) $(NAME_BASE) $(ACTIVITIES) $(ENABLE_UNDERSAMPLE) --undersample_ratio=$(UNDERSAMPLE_RATIO)
-TEST_CMD = python CSI_network_test.py $(DOPPLER_DIR) $(SUBDIRS_TEST) $(WINDOWS_LENGTH) $(FEATURE_LENGTH) 1 $(BATCH_SIZE) $(NUM_TOT) $(NAME_BASE) $(ACTIVITIES)
+NSS = 1
+NCORES = 4
+SAMPLE_LENGTH = 31
+SLIDING = 1
+NOISE_LEVEL = -1.2
+WINDOW_LENGTH = 340
+STRIDE = 30
+FEATURE_LENGTH = 100
+BATCH_SIZE = 32
+ACTIVITIES = E,W,R,J,L,S,C,G
+NUM_ANTENNAS = 4
 
-AR1d=AR1d_C1,AR1d_C2,AR1d_E,AR1d_H,AR1d_J,AR1d_L,AR1d_R,AR1d_S,AR1d_W
+# Domain Definitions
+BEDROOM = AR1a,AR1b,AR1c,AR1d,AR1e,AR2a,AR3a,AR3b,AR4a
+LIVING_ROOM = AR5a,AR5b
+KITCHEN = AR6a
+LABORATORY = AR7a
+OFFICE = AR8a,AR8b
+SEMI_ANECHOIC = AR9a,AR9b,AR9c
 
-AR7a=AR7a_C,AR7a_E,AR7a_H,AR7a_J1,AR7a_J2,AR7a_J3,AR7a_L1,AR7a_L2,AR7a_R,AR7a_S,AR7a_W
+# Domain Splits for Source Variation Experiments
+BEDROOM_SPLIT1 = AR1a,AR1b,AR1c
+BEDROOM_SPLIT2 = AR1d,AR1e,AR2a
+LIVING_SPLIT1 = AR5a
+LIVING_SPLIT2 = AR5b
+OFFICE_SPLIT1 = AR8a
+OFFICE_SPLIT2 = AR8b
+SEMI_SPLIT1 = AR9a,AR9b
+SEMI_SPLIT2 = AR9c
 
-AR3a=AR3a_C1,AR3a_C2,AR3a_E,AR3a_H1,AR3a_H2,AR3a_J1,AR3a_J2,AR3a_L,AR3a_R,AR3a_S,AR3a_W
-AR4a=AR4a_C1,AR4a_C2,AR4a_E,AR4a_H1,AR4a_H2,AR4a_J1,AR4a_J2,AR4a_L,AR4a_R,AR4a_S,AR4a_W
+# Add these variables at the top of the Makefile
+TF_ENV_VARS = XLA_FLAGS="--xla_gpu_cuda_data_dir=/usr/lib/cuda --xla_gpu_unsafe_fallback_to_driver_on_ptxas_not_found" \
+              TF_FORCE_GPU_ALLOW_GROWTH=true \
+              TF_DEVICE_PLACEMENT_SILENT=1 \
+			  PATH=/usr/local/cuda/bin:$$PATH \
+			LD_LIBRARY_PATH=/usr/local/cuda/lib64:$$LD_LIBRARY_PATH
 
-AR9b=AR9b_E,AR9b_J1,AR9b_J2,AR9b_L1,AR9b_L2,AR9b_L3,AR9b_R1,AR9b_R2,AR9b_W1,AR9b_W2
-AR6a=AR6a_E,AR6a_J1,AR6a_J2,AR6a_J3,AR6a_L1,AR6a_L2,AR6a_R1,AR6a_R2,AR6a_W1,AR6a_W2
+# Comma-separated experiment setups (no spaces)
+AR_SETUPS = $(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)
+.PHONY: all clean data_processing datasets train test metrics plots all_plots \
+        rq1 rq4 leave_one_out varying_sources cross_domain
 
-AR8a=AR8a_E1,AR8a_E2,AR8a_J1,AR8a_J2,AR8a_L1,AR8a_L2,AR8a_L3,AR8a_R1,AR8a_R2,AR8a_W1,AR8a_W2
-AR9a=AR9a_E,AR9a_J1,AR9a_J2,AR9a_L1,AR9a_L2,AR9a_R1,AR9a_R2,AR9a_W1,AR9a_W2
+all: data_processing datasets train test metrics plots
 
-AR8b=AR8b_E1,AR8b_E2,AR8b_J1,AR8b_J2,AR8b_L1,AR8b_L2,AR8b_W1,AR8b_W2
-
-AR1a=AR1a_C,AR1a_E,AR1a_H,AR1a_J1,AR1a_J2,AR1a_L,AR1a_R,AR1a_S,AR1a_W
-
-AR2a=AR2a_C,AR2a_E,AR2a_H,AR2a_J1,AR2a_J2,AR2a_L,AR2a_R,AR2a_S,AR2a_W
-AR5a=AR5a_C,AR5a_E,AR5a_H,AR5a_J1,AR5a_J2,AR5a_L,AR5a_R,AR5a_S,AR5a_W
-AR1c=AR1c_C,AR1c_E,AR1c_H,AR1c_J1,AR1c_J2,AR1c_L,AR1c_R,AR1c_S,AR1c_W
-AR1b=AR1b_C,AR1b_E,AR1b_H,AR1b_J1,AR1b_J2,AR1b_L,AR1b_R,AR1b_S,AR1b_W
-
-AR9c=AR9c_E,AR9c_J1,AR9c_J2,AR9c_J3,AR9c_L1,AR9c_L2,AR9c_L3,AR9c_R1,AR9c_R2,AR9c_W1,AR9c_W2
-
-AR1e=AR1e_E,AR1e_J1,AR1e_J2,AR1e_L,AR1e_R,AR1e_W
-AR5b=AR5b_E,AR5b_J1,AR5b_J2,AR5b_L,AR5b_R,AR5b_W
-AR3b=AR3b_E,AR3b_J1,AR3b_J2,AR3b_L,AR3b_R,AR3b_W
-
-
-bedroom = $(AR1a),$(AR1b),$(AR1c),$(AR1d),$(AR1e),$(AR2a),$(AR3a),$(AR3b),$(AR4a)
-living_room = $(AR5a),$(AR5b)
-kitchen = $(AR6a)
-laboratory = $(AR7a)
-office = $(AR8a),$(AR8b)
-semi_anechoic_chamber = $(AR9a),$(AR9b),$(AR9c)
-clean:
-	python clean_dataset_train.py
+# Data Processing Pipeline
 data_processing:
-	$(PREPROCESS_CMD)
-	$(H_ESTIMATION_CMD)
-	$(RECONSTRUCTION_CMD)
-	$(DOPPLER_CMD)
-run_nn:
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+	# Phase Sanitization
+	@for setup in $(AR_SETUPS); do \
+		echo "Processing $$setup..."; \
+		python CSI_phase_sanitization_signal_preprocessing.py "$(INPUT_DIR)$$setup/" 1 - $(NSS) $(NCORES) 0; \
+		python CSI_phase_sanitization_H_estimation.py "$(INPUT_DIR)$$setup/" 1 - $(NSS) $(NCORES) 0 -1; \
+		python CSI_phase_sanitization_signal_reconstruction.py ./phase_processing/ "$(PROCESSED_PHASE_DIR)$$setup/" $(NSS) $(NCORES) 0 -1; \
+	done
+	
+	# Doppler Computation
+	@for setup in $(AR_SETUPS); do \
+		echo "Calculating Doppler for $$setup..."; \
+		python CSI_doppler_computation.py "$(PROCESSED_PHASE_DIR)" "$$setup" "$(DOPPLER_DIR)" 0 0 $(SAMPLE_LENGTH) $(SLIDING) $(NOISE_LEVEL) --bandwidth 80; \
+	done
 
-# Toggle undersampling on/off
-enable_undersampling:
-	$(eval ENABLE_UNDERSAMPLE = --undersample)
-	@echo "Undersampling enabled with ratio $(UNDERSAMPLE_RATIO)"
+# Dataset Creation
+datasets:
+	# Create output directories first
+	mkdir -p $(DATASET_DIR)
+	
+	# Create datasets for all domains
+	python CSI_doppler_create_dataset_train.py \
+		"$(DOPPLER_DIR)" \
+		"$(AR_SETUPS)" \
+		$(SAMPLE_LENGTH) \
+		$(SLIDING) \
+		$(WINDOW_LENGTH) \
+		$(STRIDE) \
+		"$(ACTIVITIES)" \
+		$(NUM_ANTENNAS)
+	
+	python CSI_doppler_create_dataset_test.py \
+		"$(DOPPLER_DIR)" \
+		"$(AR_SETUPS)" \
+		$(SAMPLE_LENGTH) \
+		$(SLIDING) \
+		$(WINDOW_LENGTH) \
+		$(STRIDE) \
+		"$(ACTIVITIES)" \
+		$(NUM_ANTENNAS)
 
-disable_undersampling:
-	$(eval ENABLE_UNDERSAMPLE = )
-	@echo "Undersampling disabled"
+# Experiment Targets ----------------------------------------------------------
 
-# Set undersampling ratio
-set_undersample_ratio_full:
-	$(eval UNDERSAMPLE_RATIO = 1.0)
-	@echo "Undersampling ratio set to full balance (1.0)"
+# Research Question Entry Points
+rq1: leave_one_out
+rq4: varying_sources
 
-set_undersample_ratio_partial:
-	$(eval UNDERSAMPLE_RATIO = 0.7)
-	@echo "Undersampling ratio set to partial balance (0.7)"
+# Leave-One-Domain-Out Evaluation (RQ1)
+leave_one_out: leave_one_bedroom leave_one_living leave_one_kitchen leave_one_lab leave_one_office leave_one_semi
 
-set_undersample_ratio_minimal:
-	$(eval UNDERSAMPLE_RATIO = 0.3)
-	@echo "Undersampling ratio set to minimal balance (0.3)"
+leave_one_bedroom:
+	$(MAKE) train TEST_DOMAINS="$(BEDROOM)" TRAIN_DOMAINS="$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_bedroom
+	$(MAKE) test
 
-# Run with undersampling
-run_nn_with_undersampling: enable_undersampling
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+leave_one_living:
+	$(MAKE) train TEST_DOMAINS="$(LIVING_ROOM)" TRAIN_DOMAINS="$(BEDROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_living
+	$(MAKE) test
 
-run_nn_with_partial_undersampling: enable_undersampling set_undersample_ratio_partial
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+leave_one_kitchen:
+	$(MAKE) train TEST_DOMAINS="$(KITCHEN)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_kitchen
+	$(MAKE) test
 
-# Define the targets for each variation
-no_unseen_domains:
-	$(eval SUBDIRS_TRAIN = AR1a_S,AR1b_E,AR3a_R,AR5a_C,AR7a_J1,AR9b_J1)
-	$(eval SUBDIRS_TEST = AR1d_S,AR1e_E,AR2a_J1,AR5b_R,AR9c_J1,AR1c_C,)
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+leave_one_lab:
+	$(MAKE) train TEST_DOMAINS="$(LABORATORY)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_lab
+	$(MAKE) test
 
-# Version with directory-level split to prevent data leakage
-no_unseen_domains_directory_split:
-	$(eval TRAIN_SUBDIRS = AR1a_S,AR1b_E,AR1c_C,AR3a_R,AR4a_R)
-	$(eval VAL_SUBDIRS = AR5a_C,AR6a_E)
-	$(eval TEST_SUBDIRS = AR7a_J1,AR8a_E1,AR9a_J1,AR9b_J1)
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD) --train_subdirs=$(TRAIN_SUBDIRS) --val_subdirs=$(VAL_SUBDIRS) --test_subdirs=$(TEST_SUBDIRS) --split_mode=directory
-	$(TEST_CMD) --test_subdirs=$(TEST_SUBDIRS)
+leave_one_office:
+	$(MAKE) train TEST_DOMAINS="$(OFFICE)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(SEMI_ANECHOIC)" MODEL_NAME=no_office
+	$(MAKE) test
 
-# Version with undersampling and directory-level split to prevent data leakage
-no_unseen_domains_directory_split_undersampled: enable_undersampling
-	$(eval TRAIN_SUBDIRS = AR1a_S,AR1b_E,AR1c_C,AR3a_R,AR4a_R)
-	$(eval VAL_SUBDIRS = AR5a_C,AR6a_E)
-	$(eval TEST_SUBDIRS = AR7a_J1,AR8a_E1,AR9a_J1,AR9b_J1)
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD) --train_subdirs=$(TRAIN_SUBDIRS) --val_subdirs=$(VAL_SUBDIRS) --test_subdirs=$(TEST_SUBDIRS) --split_mode=directory
-	$(TEST_CMD) --test_subdirs=$(TEST_SUBDIRS)
+leave_one_semi:
+	$(MAKE) train TEST_DOMAINS="$(SEMI_ANECHOIC)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE)" MODEL_NAME=no_semi
+	$(MAKE) test
 
-# Version with undersampling
-no_unseen_domains_undersampled: enable_undersampling
-	$(eval SUBDIRS_TRAIN = AR1a_S,AR1b_E,AR1c_C,AR3a_R,AR4a_R,AR5a_C,AR6a_E,AR7a_J1,AR8a_E1,AR9a_J1,AR9b_J1)
-	$(eval SUBDIRS_TEST = AR1d_S,AR1e_E,AR2a_J1,AR5b_R,AR8b_E1,AR9c_J1)
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+# Varying Source Domain Sizes (RQ4)
+varying_sources: source_1 source_2 source_3 source_4
 
-one_unseen_domain_bedroom_hidden:
-	$(eval SUBDIRS_TRAIN = $(living_room),$(kitchen),$(laboratory),$(office),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(bedroom))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+source_1:
+	$(MAKE) train TRAIN_DOMAINS="$(BEDROOM_SPLIT1)" MODEL_NAME=source1
+	$(MAKE) test TEST_DOMAINS="$(BEDROOM_SPLIT2)"
 
-# Directory-level split version to prevent data leakage
-one_unseen_domain_bedroom_hidden_directory_split:
-	$(eval TRAIN_SUBDIRS = $(laboratory),$(office),$(semi_anechoic_chamber))
-	$(eval VAL_SUBDIRS = $(kitchen))
-	$(eval TEST_SUBDIRS = $(living_room),$(bedroom))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD) --train_subdirs=$(TRAIN_SUBDIRS) --val_subdirs=$(VAL_SUBDIRS) --test_subdirs=$(TEST_SUBDIRS) --split_mode=directory
-	$(TEST_CMD) --test_subdirs=$(TEST_SUBDIRS)
+source_2:
+	$(MAKE) train TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1)" MODEL_NAME=source2
+	$(MAKE) test TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2)"
 
-# Version with undersampling
-one_unseen_domain_bedroom_hidden_undersampled: enable_undersampling
-	$(eval SUBDIRS_TRAIN = $(living_room),$(kitchen),$(laboratory),$(office),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(bedroom))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+source_3:
+	$(MAKE) train TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1),$(OFFICE_SPLIT1)" MODEL_NAME=source3
+	$(MAKE) test TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2),$(OFFICE_SPLIT2)"
 
-one_unseen_domain_living_room_hidden:
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(office),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(living_room))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+source_4:
+	$(MAKE) train TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1),$(OFFICE_SPLIT1),$(SEMI_SPLIT1)" MODEL_NAME=source4
+	$(MAKE) test TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2),$(OFFICE_SPLIT2),$(SEMI_SPLIT2)"
 
-# Version with undersampling
-one_unseen_domain_living_room_hidden_undersampled: enable_undersampling
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(office),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(living_room))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+# Base Targets with Dynamic Domains --------------------------------------------
+train:
+	$(TF_ENV_VARS) \
+	python CSI_network.py "$(DOPPLER_DIR)" "$(TRAIN_DOMAINS)" \
+	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) $(MODEL_NAME) "$(ACTIVITIES)" \
+	--bandwidth 80
 
-one_unseen_domain_kitchen_hidden:
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(living_room),$(laboratory),$(office),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(kitchen))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+test:
+	$(TF_ENV_VARS) \
+	python CSI_network_test.py "$(DOPPLER_DIR)" "$(TEST_DOMAINS)" \
+	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) $(MODEL_NAME) "$(ACTIVITIES)" \
+	--bandwidth 80
+	@mv ./outputs/complete_*.txt ./results/$(MODEL_NAME)_results.txt
 
-# Version with undersampling
-one_unseen_domain_kitchen_hidden_undersampled: enable_undersampling
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(living_room),$(laboratory),$(office),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(kitchen))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+# Enhanced Metrics for experiments
+metrics:
+	@echo "Calculating metrics for all experiments..."
+	@for result in ./results/*_results.txt; do \
+		python CSI_network_metrics.py "$$result" "$(ACTIVITIES)"; \
+	done
+	@echo "Generated metrics available in ./results/"
 
-one_unseen_domain_laboratory_hidden:
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(living_room),$(office),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(laboratory))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+# Modified test target with optimized GPU settings (keeping existing content below this line)
+test_original:
+	$(TF_ENV_VARS) \
+	python CSI_network_test.py "$(DOPPLER_DIR)" "$(KITCHEN)" \
+	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) baseline "$(ACTIVITIES)" --bandwidth 80
 
-# Version with undersampling
-one_unseen_domain_laboratory_hidden_undersampled: enable_undersampling
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(living_room),$(office),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(laboratory))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
 
-one_unseen_domain_office_hidden:
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(living_room),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(office))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+# Metrics Calculation - Fixed to use the updated scripts with improved error handling
+metrics_original:
+	@echo "Running metrics calculation..."
+	@echo "Step 1: Processing metrics using CSI_network_metrics.py..."
+	@if [ -f ./outputs/complete_different_E_W_R_J_L_S_C_G_$(KITCHEN)_band_80_subband_1.txt ]; then \
+		python CSI_network_metrics.py ./outputs/complete_different_E_W_R_J_L_S_C_G_$(KITCHEN)_band_80_subband_1.txt "$(ACTIVITIES)" || true; \
+	elif [ -f ./outputs/complete_different_E_W_R_J_L_S_C_G_AR6a_band_80_subband_1.txt ]; then \
+		python CSI_network_metrics.py ./outputs/complete_different_E_W_R_J_L_S_C_G_AR6a_band_80_subband_1.txt "$(ACTIVITIES)" || true; \
+	else \
+		echo "No output file found for kitchen. Checking for other output files..."; \
+		LATEST_FILE=$$(ls -t ./outputs/complete_different_E_W_R_J_L_S_C_G_*.txt 2>/dev/null | head -1); \
+		if [ -n "$$LATEST_FILE" ]; then \
+			echo "Using latest output file: $$LATEST_FILE"; \
+			python CSI_network_metrics.py "$$LATEST_FILE" "$(ACTIVITIES)" || true; \
+		else \
+			echo "No output files found. Run 'make test' first."; \
+			exit 0; \
+		fi; \
+	fi
+	@echo "Step 2: Creating confusion matrix plots..."
+	python -W ignore CSI_network_metrics_plot.py confusion_matrix_baseline || echo "Warning: Error generating confusion matrix plots"
+	@echo "Step 3: Creating additional performance visualizations..."
+	python -W ignore generate_plots.py || echo "Warning: Error generating additional plots"
+	@echo "Metrics calculation and visualization completed"
+	@echo "All plots can be found in: $(shell pwd)/plots/"
 
-# Version with undersampling
-one_unseen_domain_office_hidden_undersampled: enable_undersampling
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(living_room),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(office))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+# Generate additional visualizations for Doppler activity data
+plots:
+	@echo "Generating Doppler activity visualizations..."
+	@mkdir -p ./plots
+	@if [ -d "$(DOPPLER_DIR)" ]; then \
+		echo "Step 1: Generating Doppler activity plots..."; \
+		chmod +x ./CSI_doppler_plot_activities.py; \
+		for setup in AR1a AR1b AR1c AR6a; do \
+			if [ -d "$(DOPPLER_DIR)$$setup" ]; then \
+				echo "Creating Doppler plots for $$setup..."; \
+				./CSI_doppler_plot_activities.py "$(DOPPLER_DIR)" "$$setup" $(FEATURE_LENGTH) $(SLIDING) "E,W,R,J,L" 0 340 || \
+				echo "Notice: Some errors occurred but plot generation continued"; \
+			fi; \
+		done; \
+		echo "All plots have been generated in the ./plots/ directory"; \
+		if [ -d "./plots" ]; then \
+			echo "Available plots:"; \
+			ls -la ./plots/ | grep -E '\.pdf|\.png' | awk '{print "  - " $$9}'; \
+		fi; \
+	else \
+		echo "Error: Doppler directory not found. Run 'make data_processing' first."; \
+		exit 1; \
+	fi
 
-one_unseen_domain_semi_anechoic_chamber_hidden:
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(office),$(living_room))
-	$(eval SUBDIRS_TEST = $(semi_anechoic_chamber))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+# Generate all types of visualizations using the comprehensive generator script
+all_plots:
+	@echo "Generating all types of visualizations..."
+	@mkdir -p ./plots
+	@chmod +x ./generate_all_plots.py
+	@echo "Step 1: Running comprehensive visualization generator..."
+	./generate_all_plots.py \
+		--plots-dir "./plots" \
+		--phase-dir "$(PROCESSED_PHASE_DIR)" \
+		--doppler-dir "$(DOPPLER_DIR)" \
+		--feature-length $(FEATURE_LENGTH) \
+		--sliding $(SLIDING)
+	@echo "Step 2: Generating traditional Doppler plots for specific setups..."
+	$(MAKE) plots
+	@echo "Step 3: Generating comparison plots..."
+	$(MAKE) comparison_plots
+	@echo "All visualizations have been generated in the ./plots/ directory"
+	@if [ -d "./plots" ]; then \
+		echo "Summary of available visualizations:"; \
+		echo "  Signal Processing Visualizations:"; \
+		ls -la ./plots/ | grep -E 'amplitude|phase|abs_comparison|angle_comparison|gridspec' | awk '{print "    - " $$9}'; \
+		echo "  Doppler Spectrum Visualizations:"; \
+		ls -la ./plots/ | grep -E 'doppler|antennas|fft' | awk '{print "    - " $$9}'; \
+		echo "  Performance Visualizations:"; \
+		ls -la ./plots/ | grep -E 'cm_|confusion|accuracy' | awk '{print "    - " $$9}'; \
+	fi
 
-# Version with undersampling
-one_unseen_domain_semi_anechoic_chamber_hidden_undersampled: enable_undersampling
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(office),$(living_room))
-	$(eval SUBDIRS_TEST = $(semi_anechoic_chamber))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-multiple_unseen_domains_bedroom_and_semi_anechoic_chamber_hidden:
-	$(eval SUBDIRS_TRAIN = $(living_room),$(kitchen),$(laboratory),$(office),)
-	$(eval SUBDIRS_TEST = $(bedroom),$(semi_anechoic_chamber))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-# Version with undersampling
-multiple_unseen_domains_bedroom_and_semi_anechoic_chamber_hidden_undersampled: enable_undersampling
-	$(eval SUBDIRS_TRAIN = $(living_room),$(kitchen),$(laboratory),$(office),)
-	$(eval SUBDIRS_TEST = $(bedroom),$(semi_anechoic_chamber))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-multiple_unseen_domains_kitchen_and_laboratory_hidden:
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(living_room),$(office),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(kitchen),$(laboratory))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-# Version with undersampling
-multiple_unseen_domains_kitchen_and_laboratory_hidden_undersampled: enable_undersampling
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(living_room),$(office),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(kitchen),$(laboratory))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-multiple_unseen_domains_living_room_and_office_hidden:
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(living_room),$(office))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-# Version with undersampling
-multiple_unseen_domains_living_room_and_office_hidden_undersampled: enable_undersampling
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(kitchen),$(laboratory),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(living_room),$(office))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-multiple_unseen_domains_office_bedroom_and_semi_anechoic_chamber_hidden:
-	$(eval SUBDIRS_TRAIN = $(living_room),$(kitchen),$(laboratory))
-	$(eval SUBDIRS_TEST = $(office),$(bedroom),$(semi_anechoic_chamber))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-# Version with undersampling
-multiple_unseen_domains_office_bedroom_and_semi_anechoic_chamber_hidden_undersampled: enable_undersampling
-	$(eval SUBDIRS_TRAIN = $(living_room),$(kitchen),$(laboratory))
-	$(eval SUBDIRS_TEST = $(office),$(bedroom),$(semi_anechoic_chamber))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-multiple_unseen_domains_living_room_kitchen_and_laboratory_hidden:
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(office),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(living_room),$(kitchen),$(laboratory))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-# Version with undersampling
-multiple_unseen_domains_living_room_kitchen_and_laboratory_hidden_undersampled: enable_undersampling
-	$(eval SUBDIRS_TRAIN = $(bedroom),$(office),$(semi_anechoic_chamber))
-	$(eval SUBDIRS_TEST = $(living_room),$(kitchen),$(laboratory))
-	$(CREATE_DATASET_TRAIN_CMD)
-	$(CREATE_DATASET_TEST_CMD)
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-all: data_processing all_tests
-all_tests: 
-	 no_unseen_domains one_unseen_domain_bedroom_hidden one_unseen_domain_living_room_hidden \
-	 one_unseen_domain_kitchen_hidden one_unseen_domain_laboratory_hidden one_unseen_domain_office_hidden \
-	 one_unseen_domain_semi_anechoic_chamber_hidden multiple_unseen_domains_bedroom_and_semi_anechoic_chamber_hidden \
-	 multiple_unseen_domains_equivalent_data_kitchen_laboratory_hidden \
-	 multiple_unseen_domains_equivalent_data_kitchen_laboratory_hidden_test2
-
-# Run all tests with undersampling enabled
-all_tests_undersampled: enable_undersampling
-	 no_unseen_domains one_unseen_domain_bedroom_hidden one_unseen_domain_living_room_hidden \
-	 one_unseen_domain_kitchen_hidden one_unseen_domain_laboratory_hidden one_unseen_domain_office_hidden \
-	 one_unseen_domain_semi_anechoic_chamber_hidden multiple_unseen_domains_bedroom_and_semi_anechoic_chamber_hidden \
-	 multiple_unseen_domains_equivalent_data_kitchen_laboratory_hidden \
-	 multiple_unseen_domains_equivalent_data_kitchen_laboratory_hidden_test2
-
-# Run individual test scenarios with different undersampling ratios
-run_with_full_undersampling: set_undersample_ratio_full enable_undersampling
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-run_with_partial_undersampling: set_undersample_ratio_partial enable_undersampling
-	$(TRAIN_CMD)
-	$(TEST_CMD)
-
-run_with_minimal_undersampling: set_undersample_ratio_minimal enable_undersampling
-	$(TRAIN_CMD)
-	$(TEST_CMD)
+# Generate comparison plots across different activities
+comparison_plots:
+	@echo "Generating comparison plots across activities..."
+	@mkdir -p ./plots
+	@chmod +x ./generate_doppler_comparison_plots.py
+	@if [ -d "$(DOPPLER_DIR)" ]; then \
+		for setup in AR1a AR1b AR1c AR6a; do \
+			if [ -d "$(DOPPLER_DIR)$$setup" ]; then \
+				echo "Creating comparison plots for $$setup..."; \
+				./generate_doppler_comparison_plots.py "$(DOPPLER_DIR)" "$$setup" $(FEATURE_LENGTH) $(SLIDING) "E,W,R,J,L" || \
+				echo "Notice: Some errors occurred but comparison plot generation continued"; \
+			fi; \
+		done; \
+		echo "All comparison plots have been generated in the ./plots/ directory"; \
+		if [ -d "./plots" ]; then \
+			echo "Available comparison plots:"; \
+			ls -la ./plots/ | grep -E 'comparison|compare|antennas' | awk '{print "  - " $$9}'; \
+		fi; \
+	else \
+		echo "Error: Doppler directory not found. Run 'make data_processing' first."; \
+		exit 1; \
+	fi

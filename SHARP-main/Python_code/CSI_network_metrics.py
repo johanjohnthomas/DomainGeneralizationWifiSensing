@@ -1,4 +1,3 @@
-
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -17,6 +16,7 @@
 import argparse
 import numpy as np
 import pickle
+import os
 
 
 if __name__ == '__main__':
@@ -34,9 +34,21 @@ if __name__ == '__main__':
 
     folder_name = './outputs/'
 
-    name_file = folder_name + name_file + '.txt'
+    # Fix path handling to avoid duplication
+    if name_file.startswith('./outputs/') and name_file.endswith('.txt'):
+        # Path is already complete, use as is
+        full_path = name_file
+    elif name_file.startswith('./outputs/'):
+        # Has path but no extension
+        full_path = name_file + '.txt'
+    elif name_file.endswith('.txt'):
+        # Has extension but no path
+        full_path = folder_name + name_file
+    else:
+        # Neither path nor extension
+        full_path = folder_name + name_file + '.txt'
 
-    with open(name_file, "rb") as fp:  # Pickling
+    with open(full_path, "rb") as fp:  # Pickling
         conf_matrix_dict = pickle.load(fp)
 
     conf_matrix = conf_matrix_dict['conf_matrix']
@@ -78,8 +90,14 @@ if __name__ == '__main__':
              accuracies_max_merge[4]))
 
     # performance assessment by changing the number of monitor antennas
-    name_file = folder_name + 'change_number_antennas_' + args.name_file + '.txt'
-    with open(name_file, "rb") as fp:  # Pickling
+    # Fix the second file path handling as well
+    second_file_base = 'change_number_antennas_' + os.path.basename(name_file.replace('.txt', ''))
+    if second_file_base.startswith('./outputs/'):
+        second_file = second_file_base + '.txt'
+    else:
+        second_file = folder_name + second_file_base + '.txt'
+        
+    with open(second_file, "rb") as fp:  # Pickling
         metrics_matrix_dict = pickle.load(fp)
 
     average_accuracy_change_num_ant = metrics_matrix_dict['average_accuracy_change_num_ant']
