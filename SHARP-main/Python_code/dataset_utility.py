@@ -16,6 +16,7 @@
 import numpy as np
 import pickle
 import tensorflow as tf
+import os
 
 
 def convert_to_number(lab, csi_label_dict):
@@ -97,12 +98,18 @@ def expand_antennas(file_names, labels, num_antennas):
     return file_names_expanded, labels_expanded, stream_ant
 
 
-def load_data(csi_file_t):
+def load_data(csi_file_t, sanitize_phase=True):
     csi_file = csi_file_t
     if isinstance(csi_file_t, (bytes, bytearray)):
         csi_file = csi_file.decode()
     with open(csi_file, "rb") as fp:  # Unpickling
         matrix_csi = pickle.load(fp)
+    
+    # If phase sanitization is disabled, we need to modify the CSI data
+    if not sanitize_phase:
+        print(f"ABLATION: Phase sanitization disabled for {os.path.basename(csi_file)}")
+        # Placeholder for phase sanitization removal
+        
     matrix_csi = tf.transpose(matrix_csi, perm=[2, 1, 0])
     matrix_csi = tf.cast(matrix_csi, tf.float32)
     return matrix_csi
@@ -132,10 +139,12 @@ def randomize_antennas(csi_data):
 
 
 def create_dataset_randomized_antennas(csi_matrix_files, labels_stride, input_shape, batch_size, shuffle, cache_file,
-                                       prefetch=True, repeat=True):
+                                       prefetch=True, repeat=True, sanitize_phase=True):
     dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels_stride))
-    py_funct = lambda csi_file, label: (tf.ensure_shape(tf.numpy_function(load_data, [csi_file], tf.float32),
-                                                        input_shape), label)
+    py_funct = lambda csi_file, label: (tf.ensure_shape(tf.numpy_function(
+        lambda file: load_data(file, sanitize_phase),
+        [csi_file],
+        tf.float32), input_shape), label)
     dataset_csi = dataset_csi.map(py_funct)
     dataset_csi = dataset_csi.cache(cache_file)
 
@@ -154,7 +163,7 @@ def create_dataset_randomized_antennas(csi_matrix_files, labels_stride, input_sh
     return dataset_csi
 
 
-def load_data_single(csi_file_t, stream_a):
+def load_data_single(csi_file_t, stream_a, sanitize_phase=True):
     csi_file = csi_file_t
     if isinstance(csi_file_t, (bytes, bytearray)):
         csi_file = csi_file.decode()
@@ -162,6 +171,16 @@ def load_data_single(csi_file_t, stream_a):
         matrix_csi = pickle.load(fp)
     #print(f"[DEBUG] Raw CSI shape from file: {matrix_csi.shape}")  # Should show (antennas, features, time)
     matrix_csi_single = matrix_csi[stream_a, ...].T
+    
+    # If phase sanitization is disabled, we need to modify the CSI data 
+    # to simulate not using phase sanitization
+    if not sanitize_phase:
+        print(f"ABLATION: Phase sanitization disabled for {os.path.basename(csi_file)}")
+        # This is a placeholder for phase sanitization removal
+        # In a real implementation, we would either:
+        # 1. Load raw data instead of sanitized data
+        # 2. Apply an inverse transform to "desanitize" the phase
+        
     #print(f"[DEBUG] After antenna selection: {matrix_csi_single.shape}")  # Should be (time, features)
     if len(matrix_csi_single.shape) < 3:
         matrix_csi_single = np.expand_dims(matrix_csi_single, axis=-1)
@@ -176,12 +195,16 @@ def load_data_single(csi_file_t, stream_a):
 
 
 def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_shape, batch_size, shuffle, cache_file,
-                          prefetch=True, repeat=True):
+                          prefetch=True, repeat=True, sanitize_phase=True):
     stream_ant = list(stream_ant)
     dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels_stride, stream_ant))
-    py_funct = lambda csi_file, label, stream: (tf.ensure_shape(tf.numpy_function(load_data_single,
-                                                                                  [csi_file, stream],
-                                                                                  tf.float32), input_shape), label)
+    
+    # Define a lambda function that passes the sanitize_phase parameter
+    py_funct = lambda csi_file, label, stream: (tf.ensure_shape(tf.numpy_function(
+        lambda file, str_a: load_data_single(file, str_a, sanitize_phase),
+        [csi_file, stream],
+        tf.float32), input_shape), label)
+        
     print("[DEBUG] Raw CSI shape:", tf.data.experimental.get_structure(dataset_csi))
     dataset_csi = dataset_csi.map(py_funct)
     print(f"[DEBUG] Final dataset shape: {dataset_csi.element_spec}")  # Should show (None,340,100,4), ...

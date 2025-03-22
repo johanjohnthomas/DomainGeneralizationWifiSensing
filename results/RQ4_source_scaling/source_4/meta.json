@@ -1,0 +1,21 @@
+{
+    "research_question": "RQ4",
+    "experiment_id": "source_4",
+    "train_domains": [
+        "bedroom_split1",
+        "living_split1",
+        "office_split1",
+        "semi_split1"
+    ],
+    "test_domains": [
+        "bedroom_split2",
+        "living_split2",
+        "office_split2",
+        "semi_split2"
+    ],
+    "components_used": [
+        "phase_sanitization",
+        "antenna_randomization"
+    ],
+    "timestamp": "2025-03-22T12:04:42"
+}

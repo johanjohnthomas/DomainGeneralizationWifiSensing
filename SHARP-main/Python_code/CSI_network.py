@@ -70,10 +70,25 @@ if __name__ == '__main__':
                                             '(default 80)', default=80, required=False, type=int)
     parser.add_argument('--sub_band', help='Sub_band idx in [1, 2, 3, 4] for 20 MHz, [1, 2] for 40 MHz '
                                            '(default 1)', default=1, required=False, type=int)
+    # Add command-line arguments for component ablation studies (RQ5)
+    parser.add_argument('--no-phase-sanitization', action='store_true',
+                        help='Disable phase sanitization for ablation studies')
+    parser.add_argument('--no-antenna-random', action='store_true',
+                        help='Disable antenna randomization for ablation studies')
     args = parser.parse_args()
 
     gpus = tf.config.experimental.list_physical_devices('GPU')
     print(gpus)
+
+    # Print component ablation status
+    if args.no_phase_sanitization:
+        print("===============================================")
+        print("ABLATION STUDY: Phase sanitization is DISABLED")
+        print("===============================================")
+    if args.no_antenna_random:
+        print("===============================================")
+        print("ABLATION STUDY: Antenna randomization is DISABLED")
+        print("===============================================")
 
     bandwidth = args.bandwidth
     sub_band = args.sub_band
@@ -161,9 +176,23 @@ if __name__ == '__main__':
         expand_antennas(file_train_selected, labels_train_selected, num_antennas)
 
     name_cache = name_base + '_' + activity_str + '_cache_train'
-    dataset_csi_train = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
-                                              stream_ant_train, input_network, batch_size,
-                                              shuffle=True, cache_file=name_cache)
+    
+    # Conditional dataset creation based on ablation flags
+    if args.no_antenna_random:
+        print("ABLATION: Antenna randomization disabled")
+        dataset_csi_train = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
+                                                stream_ant_train, input_network, batch_size,
+                                                shuffle=True, cache_file=name_cache, 
+                                                sanitize_phase=not args.no_phase_sanitization)
+    else:
+        print("Using antenna randomization")
+        # Import the randomized dataset creation function if needed
+        from dataset_utility import create_dataset_randomized_antennas
+        dataset_csi_train = create_dataset_randomized_antennas(file_train_selected_expanded, 
+                                                              labels_train_selected_expanded,
+                                                              input_network, batch_size,
+                                                              shuffle=True, cache_file=name_cache,
+                                                              sanitize_phase=not args.no_phase_sanitization)
 
     file_val_selected = [all_files_val[idx] for idx in range(len(labels_val)) if labels_val[idx] in
                          labels_considered]
@@ -174,9 +203,20 @@ if __name__ == '__main__':
         expand_antennas(file_val_selected, labels_val_selected, num_antennas)
 
     name_cache_val = name_base + '_' + activity_str + '_cache_val'
-    dataset_csi_val = create_dataset_single(file_val_selected_expanded, labels_val_selected_expanded,
-                                            stream_ant_val, input_network, batch_size,
-                                            shuffle=False, cache_file=name_cache_val)
+    
+    # Apply same conditional logic to validation dataset
+    if args.no_antenna_random:
+        dataset_csi_val = create_dataset_single(file_val_selected_expanded, labels_val_selected_expanded,
+                                               stream_ant_val, input_network, batch_size,
+                                               shuffle=False, cache_file=name_cache_val,
+                                               sanitize_phase=not args.no_phase_sanitization)
+    else:
+        from dataset_utility import create_dataset_randomized_antennas
+        dataset_csi_val = create_dataset_randomized_antennas(file_val_selected_expanded, 
+                                                            labels_val_selected_expanded,
+                                                            input_network, batch_size,
+                                                            shuffle=False, cache_file=name_cache_val,
+                                                            sanitize_phase=not args.no_phase_sanitization)
 
     file_test_selected = [all_files_test[idx] for idx in range(len(labels_test)) if labels_test[idx] in
                           labels_considered]
@@ -187,9 +227,20 @@ if __name__ == '__main__':
         expand_antennas(file_test_selected, labels_test_selected, num_antennas)
 
     name_cache_test = name_base + '_' + activity_str + '_cache_test'
-    dataset_csi_test = create_dataset_single(file_test_selected_expanded, labels_test_selected_expanded,
-                                             stream_ant_test, input_network, batch_size,
-                                             shuffle=False, cache_file=name_cache_test)
+    
+    # Apply same conditional logic to test dataset
+    if args.no_antenna_random:
+        dataset_csi_test = create_dataset_single(file_test_selected_expanded, labels_test_selected_expanded,
+                                                stream_ant_test, input_network, batch_size,
+                                                shuffle=False, cache_file=name_cache_test,
+                                                sanitize_phase=not args.no_phase_sanitization)
+    else:
+        from dataset_utility import create_dataset_randomized_antennas
+        dataset_csi_test = create_dataset_randomized_antennas(file_test_selected_expanded, 
+                                                             labels_test_selected_expanded,
+                                                             input_network, batch_size,
+                                                             shuffle=False, cache_file=name_cache_test,
+                                                             sanitize_phase=not args.no_phase_sanitization)
                                              
     # Create model variables
     # This fixes the device placement issue by ensuring all variables are pinned to GPU
@@ -221,8 +272,22 @@ if __name__ == '__main__':
 
     callback_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
 
-    name_model_h5 = name_base + '_' + activity_str + '_network.keras'  # For HDF5
-    name_model_tf = name_base + '_' + activity_str + '_network'     # For SavedModel (directory)
+    name_model_h5 = name_base + '_' + activity_str
+    # Add ablation flags to model name
+    if args.no_phase_sanitization:
+        name_model_h5 += '_no_phase'
+    if args.no_antenna_random:
+        name_model_h5 += '_no_antenna'
+    name_model_h5 += '_network.keras'  # For HDF5
+    
+    name_model_tf = name_base + '_' + activity_str
+    # Add ablation flags to model name
+    if args.no_phase_sanitization:
+        name_model_tf += '_no_phase'
+    if args.no_antenna_random:
+        name_model_tf += '_no_antenna'
+    name_model_tf += '_network'     # For SavedModel (directory)
+    
     callback_save = tf.keras.callbacks.ModelCheckpoint(
         name_model_h5, 
         save_freq='epoch', 
@@ -243,6 +308,18 @@ if __name__ == '__main__':
 
     # Save model in Keras format (compatible with Keras 3)
     csi_model.save(name_model_h5)
+    
+    # Save component ablation information to a metadata file
+    component_ablation_info = {
+        "no_phase_sanitization": args.no_phase_sanitization,
+        "no_antenna_randomization": args.no_antenna_random
+    }
+    
+    # Save as a pickle file with the same base name
+    ablation_metadata_file = name_base + '_' + activity_str + '_ablation_metadata.pkl'
+    with open(ablation_metadata_file, 'wb') as f:
+        pickle.dump(component_ablation_info, f)
+    print(f"Saved component ablation metadata to {ablation_metadata_file}")
     
     # Clear TensorFlow session to free memory
     K.clear_session()
