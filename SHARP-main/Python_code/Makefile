@@ -102,47 +102,47 @@ rq4: varying_sources
 leave_one_out: leave_one_bedroom leave_one_living leave_one_kitchen leave_one_lab leave_one_office leave_one_semi
 
 leave_one_bedroom:
-	$(MAKE) train TEST_DOMAINS="$(BEDROOM)" TRAIN_DOMAINS="$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_bedroom
-	$(MAKE) test
+	make train TEST_DOMAINS="$(BEDROOM)" TRAIN_DOMAINS="$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_bedroom
+	make test
 
 leave_one_living:
-	$(MAKE) train TEST_DOMAINS="$(LIVING_ROOM)" TRAIN_DOMAINS="$(BEDROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_living
-	$(MAKE) test
+	make train TEST_DOMAINS="$(LIVING_ROOM)" TRAIN_DOMAINS="$(BEDROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_living
+	make test
 
 leave_one_kitchen:
-	$(MAKE) train TEST_DOMAINS="$(KITCHEN)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_kitchen
-	$(MAKE) test
+	make train TEST_DOMAINS="$(KITCHEN)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_kitchen
+	make test
 
 leave_one_lab:
-	$(MAKE) train TEST_DOMAINS="$(LABORATORY)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_lab
-	$(MAKE) test
+	make train TEST_DOMAINS="$(LABORATORY)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_lab
+	make test
 
 leave_one_office:
-	$(MAKE) train TEST_DOMAINS="$(OFFICE)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(SEMI_ANECHOIC)" MODEL_NAME=no_office
-	$(MAKE) test
+	make train TEST_DOMAINS="$(OFFICE)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(SEMI_ANECHOIC)" MODEL_NAME=no_office
+	make test
 
 leave_one_semi:
-	$(MAKE) train TEST_DOMAINS="$(SEMI_ANECHOIC)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE)" MODEL_NAME=no_semi
-	$(MAKE) test
+	make train TEST_DOMAINS="$(SEMI_ANECHOIC)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE)" MODEL_NAME=no_semi
+	make test
 
 # Varying Source Domain Sizes (RQ4)
 varying_sources: source_1 source_2 source_3 source_4
 
 source_1:
-	$(MAKE) train TRAIN_DOMAINS="$(BEDROOM_SPLIT1)" MODEL_NAME=source1
-	$(MAKE) test TEST_DOMAINS="$(BEDROOM_SPLIT2)"
+	make train TRAIN_DOMAINS="$(BEDROOM_SPLIT1)" MODEL_NAME=source1
+	make test TEST_DOMAINS="$(BEDROOM_SPLIT2)"
 
 source_2:
-	$(MAKE) train TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1)" MODEL_NAME=source2
-	$(MAKE) test TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2)"
+	make train TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1)" MODEL_NAME=source2
+	make test TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2)"
 
 source_3:
-	$(MAKE) train TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1),$(OFFICE_SPLIT1)" MODEL_NAME=source3
-	$(MAKE) test TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2),$(OFFICE_SPLIT2)"
+	make train TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1),$(OFFICE_SPLIT1)" MODEL_NAME=source3
+	make test TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2),$(OFFICE_SPLIT2)"
 
 source_4:
-	$(MAKE) train TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1),$(OFFICE_SPLIT1),$(SEMI_SPLIT1)" MODEL_NAME=source4
-	$(MAKE) test TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2),$(OFFICE_SPLIT2),$(SEMI_SPLIT2)"
+	make train TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1),$(OFFICE_SPLIT1),$(SEMI_SPLIT1)" MODEL_NAME=source4
+	make test TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2),$(OFFICE_SPLIT2),$(SEMI_SPLIT2)"
 
 # Base Targets with Dynamic Domains --------------------------------------------
 train:
@@ -236,9 +236,9 @@ all_plots:
 		--feature-length $(FEATURE_LENGTH) \
 		--sliding $(SLIDING)
 	@echo "Step 2: Generating traditional Doppler plots for specific setups..."
-	$(MAKE) plots
+	make plots
 	@echo "Step 3: Generating comparison plots..."
-	$(MAKE) comparison_plots
+	make comparison_plots
 	@echo "All visualizations have been generated in the ./plots/ directory"
 	@if [ -d "./plots" ]; then \
 		echo "Summary of available visualizations:"; \
