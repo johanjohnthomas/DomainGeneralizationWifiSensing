@@ -1,4 +1,3 @@
-
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -22,6 +21,7 @@ import os
 from dataset_utility import create_dataset_single, expand_antennas
 from network_utility import *
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
+import glob
 
 
 if __name__ == '__main__':
@@ -54,18 +54,27 @@ if __name__ == '__main__':
     activities = np.asarray(activities)
 
     name_base = args.name_base
-    if os.path.exists(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train.data-00000-of-00001'):
-        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train.data-00000-of-00001')
-        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train.index')
-    if os.path.exists(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_val.data-00000-of-00001'):
-        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_val.data-00000-of-00001')
-        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_val.index')
-    if os.path.exists(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train_test.data-00000-of-00001'):
-        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train_test.data-00000-of-00001')
-        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train_test.index')
-    if os.path.exists(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_test.data-00000-of-00001'):
-        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_test.data-00000-of-00001')
-        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_test.index')
+    activity_str = '_'.join(csi_act.split(','))
+    
+    # Remove cache data files
+    if os.path.exists(name_base + '_' + activity_str + '_cache_train.data-00000-of-00001'):
+        os.remove(name_base + '_' + activity_str + '_cache_train.data-00000-of-00001')
+        os.remove(name_base + '_' + activity_str + '_cache_train.index')
+    if os.path.exists(name_base + '_' + activity_str + '_cache_val.data-00000-of-00001'):
+        os.remove(name_base + '_' + activity_str + '_cache_val.data-00000-of-00001')
+        os.remove(name_base + '_' + activity_str + '_cache_val.index')
+    if os.path.exists(name_base + '_' + activity_str + '_cache_train_test.data-00000-of-00001'):
+        os.remove(name_base + '_' + activity_str + '_cache_train_test.data-00000-of-00001')
+        os.remove(name_base + '_' + activity_str + '_cache_train_test.index')
+    if os.path.exists(name_base + '_' + activity_str + '_cache_test.data-00000-of-00001'):
+        os.remove(name_base + '_' + activity_str + '_cache_test.data-00000-of-00001')
+        os.remove(name_base + '_' + activity_str + '_cache_test.index')
+    
+    # Also remove any lockfiles that might be present
+    for f in glob.glob(f"{name_base}_{activity_str}_cache_*.lockfile"):
+        if os.path.exists(f):
+            print(f"Removing lockfile: {f}")
+            os.remove(f)
 
     subdirs_training = args.subdirs  # string
     labels_train = []
@@ -121,7 +130,7 @@ if __name__ == '__main__':
     file_train_selected_expanded, labels_train_selected_expanded, stream_ant_train = \
         expand_antennas(file_train_selected, labels_train_selected, num_antennas)
 
-    name_cache = name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train'
+    name_cache = name_base + '_' + activity_str + '_cache_train'
     dataset_csi_train = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
                                               stream_ant_train, input_network, batch_size,
                                               shuffle=True, cache_file=name_cache)
@@ -134,7 +143,7 @@ if __name__ == '__main__':
     file_val_selected_expanded, labels_val_selected_expanded, stream_ant_val = \
         expand_antennas(file_val_selected, labels_val_selected, num_antennas)
 
-    name_cache_val = name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_val'
+    name_cache_val = name_base + '_' + activity_str + '_cache_val'
     dataset_csi_val = create_dataset_single(file_val_selected_expanded, labels_val_selected_expanded,
                                             stream_ant_val, input_network, batch_size,
                                             shuffle=False, cache_file=name_cache_val)
@@ -147,7 +156,7 @@ if __name__ == '__main__':
     file_test_selected_expanded, labels_test_selected_expanded, stream_ant_test = \
         expand_antennas(file_test_selected, labels_test_selected, num_antennas)
 
-    name_cache_test = name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_test'
+    name_cache_test = name_base + '_' + activity_str + '_cache_test'
     dataset_csi_test = create_dataset_single(file_test_selected_expanded, labels_test_selected_expanded,
                                              stream_ant_test, input_network, batch_size,
                                              shuffle=False, cache_file=name_cache_test)
@@ -172,7 +181,7 @@ if __name__ == '__main__':
 
     callback_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
 
-    name_model = name_base + '_' +  '_'.join(csi_act.split(',')) + '_network.h5'
+    name_model = name_base + '_' + activity_str + '_network.h5'
     callback_save = tf.keras.callbacks.ModelCheckpoint(name_model, save_freq='epoch', save_best_only=True,
                                                        monitor='val_sparse_categorical_accuracy')
 
@@ -187,7 +196,7 @@ if __name__ == '__main__':
     # train
     train_labels_true = np.array(labels_train_selected_expanded)
 
-    name_cache_train_test = name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train_test'
+    name_cache_train_test = name_base + '_' + activity_str + '_cache_train_test'
     dataset_csi_train_test = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
                                                    stream_ant_train, input_network, batch_size,
                                                    shuffle=False, cache_file=name_cache_train_test, prefetch=False)

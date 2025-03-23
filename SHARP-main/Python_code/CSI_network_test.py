@@ -140,7 +140,7 @@ if __name__ == '__main__':
             lab_max_merge = lab_unique[0]
         pred_max_merge[i_lab] = lab_max_merge
 
-    conf_matrix_max_merge = confusion_matrix(labels_true_merge, pred_max_merge, labels_considered)
+    conf_matrix_max_merge = confusion_matrix(labels_true_merge, pred_max_merge, labels=labels_considered)
     precision_max_merge, recall_max_merge, fscore_max_merge, _ = \
         precision_recall_fscore_support(labels_true_merge, pred_max_merge, labels=labels_considered, zero_division=0)
     accuracy_max_merge = accuracy_score(labels_true_merge, pred_max_merge)
