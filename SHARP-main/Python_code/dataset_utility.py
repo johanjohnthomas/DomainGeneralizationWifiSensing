@@ -1,3 +1,4 @@
+
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -16,7 +17,6 @@
 import numpy as np
 import pickle
 import tensorflow as tf
-import os
 
 
 def convert_to_number(lab, csi_label_dict):
@@ -37,58 +37,51 @@ def create_windows(csi_list, labels_list, sample_length, stride_length):
     return csi_matrix_stride, labels_stride
 
 
-def create_windows_antennas(csi_list, labels_list, window_length, stride_length, remove_mean=False):
-    """
-    Enhanced window creation with shape validation and edge handling
-    Args:
-        csi_list: List of CSI matrices [num_antennas, features, time_steps]
-        labels_list: Corresponding activity labels
-        window_length: Temporal length of windows
-        stride_length: Stride between window starts
-        remove_mean: Whether to remove window mean
-    Returns:
-        windows: List of windowed CSI data
-        labels: Expanded labels for each window
-    """
-    # 1. Input Validation
-    assert window_length > 0, "Window length must be positive"
-    assert stride_length > 0, "Stride must be positive"
-    assert len(csi_list) == len(labels_list), "CSI/Label length mismatch"
-    
-    csi_windows = []
-    window_labels = []
-    
-    for csi_matrix, label in zip(csi_list, labels_list):
-        num_antennas, num_features, total_timesteps = csi_matrix.shape
+def create_windows_antennas(csi_list, labels_list, sample_length, stride_length, remove_mean=False):
+    csi_matrix_stride = []
+    labels_stride = []
+    for i in range(len(labels_list)):
+        csi_i = csi_list[i]
+        label_i = labels_list[i]
+        len_csi = csi_i.shape[2]
         
-        # 2. Adaptive Window Calculation
-        max_start_idx = total_timesteps - window_length
-        if max_start_idx < 0:
-            raise ValueError(f"CSI length {total_timesteps} < window {window_length}")
-            
-        # 3. Precise Window Generation
-        start_indices = range(0, max_start_idx + 1, stride_length)
-        for start in start_indices:
-            end = start + window_length
-            window = csi_matrix[:, :, start:end]
-            
-            # 4. Mean Removal (optional)
-            if remove_mean:
-                window -= np.mean(window, axis=2, keepdims=True)
-                
-            # 5. Shape Preservation Check
-            if window.shape[2] != window_length:
-                continue  # Skip incomplete final windows
-                
-            csi_windows.append(window)
-            window_labels.append(label)
-    
-    # 6. Final Consistency Check
-    if len(csi_windows) != len(window_labels):
-        raise RuntimeError("Window/label count mismatch during creation")
+        # ======== Key Change 1: Window Calculation Fix ========
+        # Original code might miss final window. Now using:
+        num_windows = (len_csi - sample_length) // stride_length + 1
         
-    return np.array(csi_windows), np.array(window_labels)
+        # ======== Key Change 2: Progress Tracking ========
+        from tqdm import tqdm  # Add import at top if needed
+        for ii in tqdm(range(0, (len_csi - sample_length) + 1, stride_length),
+                      desc=f"Processing label {label_i}",
+                      leave=False):
+            
+            # ======== Key Change 3: Dynamic Stride Adjustment ========
+            # Handle edge case where remaining samples < stride_length
+            if ii + sample_length > len_csi:
+                if len_csi >= sample_length:  # Final valid window
+                    ii = len_csi - sample_length
+                else:  # Skip incomplete window
+                    break
+                    
+            csi_wind = csi_i[:, :, ii:ii + sample_length, ...]
+            
+            # ======== Key Change 4: Shape Validation ========
+            if csi_wind.shape[2] != sample_length:
+                print(f"Window shape mismatch at index {ii}: {csi_wind.shape}")
+                continue
 
+            if remove_mean:
+                csi_mean = np.mean(csi_wind, axis=2, keepdims=True)
+                csi_wind = csi_wind - csi_mean
+                
+            csi_matrix_stride.append(csi_wind)
+            labels_stride.append(label_i)
+
+        # ======== Key Change 5: Sanity Check ========
+        actual_windows = len([w for w in csi_matrix_stride if w.shape[2] == sample_length])
+        print(f"Label {label_i}: Calculated {num_windows} vs Actual {actual_windows} windows")
+        
+    return csi_matrix_stride, labels_stride
 
 
 def expand_antennas(file_names, labels, num_antennas):
@@ -98,18 +91,12 @@ def expand_antennas(file_names, labels, num_antennas):
     return file_names_expanded, labels_expanded, stream_ant
 
 
-def load_data(csi_file_t, sanitize_phase=True):
+def load_data(csi_file_t):
     csi_file = csi_file_t
     if isinstance(csi_file_t, (bytes, bytearray)):
         csi_file = csi_file.decode()
     with open(csi_file, "rb") as fp:  # Unpickling
         matrix_csi = pickle.load(fp)
-    
-    # If phase sanitization is disabled, we need to modify the CSI data
-    if not sanitize_phase:
-        print(f"ABLATION: Phase sanitization disabled for {os.path.basename(csi_file)}")
-        # Placeholder for phase sanitization removal
-        
     matrix_csi = tf.transpose(matrix_csi, perm=[2, 1, 0])
     matrix_csi = tf.cast(matrix_csi, tf.float32)
     return matrix_csi
@@ -139,12 +126,10 @@ def randomize_antennas(csi_data):
 
 
 def create_dataset_randomized_antennas(csi_matrix_files, labels_stride, input_shape, batch_size, shuffle, cache_file,
-                                       prefetch=True, repeat=True, sanitize_phase=True):
+                                       prefetch=True, repeat=True):
     dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels_stride))
-    py_funct = lambda csi_file, label: (tf.ensure_shape(tf.numpy_function(
-        lambda file: load_data(file, sanitize_phase),
-        [csi_file],
-        tf.float32), input_shape), label)
+    py_funct = lambda csi_file, label: (tf.ensure_shape(tf.numpy_function(load_data, [csi_file], tf.float32),
+                                                        input_shape), label)
     dataset_csi = dataset_csi.map(py_funct)
     dataset_csi = dataset_csi.cache(cache_file)
 
@@ -163,56 +148,30 @@ def create_dataset_randomized_antennas(csi_matrix_files, labels_stride, input_sh
     return dataset_csi
 
 
-def load_data_single(csi_file_t, stream_a, sanitize_phase=True):
+def load_data_single(csi_file_t, stream_a):
     csi_file = csi_file_t
     if isinstance(csi_file_t, (bytes, bytearray)):
         csi_file = csi_file.decode()
     with open(csi_file, "rb") as fp:  # Unpickling
         matrix_csi = pickle.load(fp)
-    #print(f"[DEBUG] Raw CSI shape from file: {matrix_csi.shape}")  # Should show (antennas, features, time)
     matrix_csi_single = matrix_csi[stream_a, ...].T
-    
-    # If phase sanitization is disabled, we need to modify the CSI data 
-    # to simulate not using phase sanitization
-    if not sanitize_phase:
-        print(f"ABLATION: Phase sanitization disabled for {os.path.basename(csi_file)}")
-        # This is a placeholder for phase sanitization removal
-        # In a real implementation, we would either:
-        # 1. Load raw data instead of sanitized data
-        # 2. Apply an inverse transform to "desanitize" the phase
-        
-    #print(f"[DEBUG] After antenna selection: {matrix_csi_single.shape}")  # Should be (time, features)
     if len(matrix_csi_single.shape) < 3:
         matrix_csi_single = np.expand_dims(matrix_csi_single, axis=-1)
-   # print(f"[DEBUG] After channel expansion: {matrix_csi_single.shape}")  # Should be (340, 100, 4)
-    
-    # Add dimension validation
-    if matrix_csi_single.shape != (340, 100, 1):
-        raise ValueError(f"Invalid CSI shape: {matrix_csi_single.shape}")
-        
     matrix_csi_single = tf.cast(matrix_csi_single, tf.float32)
     return matrix_csi_single
 
 
 def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_shape, batch_size, shuffle, cache_file,
-                          prefetch=True, repeat=True, sanitize_phase=True):
+                          prefetch=True, repeat=True):
     stream_ant = list(stream_ant)
     dataset_csi = tf.data.Dataset.from_tensor_slices((csi_matrix_files, labels_stride, stream_ant))
-    
-    # Define a lambda function that passes the sanitize_phase parameter
-    py_funct = lambda csi_file, label, stream: (tf.ensure_shape(tf.numpy_function(
-        lambda file, str_a: load_data_single(file, str_a, sanitize_phase),
-        [csi_file, stream],
-        tf.float32), input_shape), label)
-        
-    print("[DEBUG] Raw CSI shape:", tf.data.experimental.get_structure(dataset_csi))
+    py_funct = lambda csi_file, label, stream: (tf.ensure_shape(tf.numpy_function(load_data_single,
+                                                                                  [csi_file, stream],
+                                                                                  tf.float32), input_shape), label)
     dataset_csi = dataset_csi.map(py_funct)
-    print(f"[DEBUG] Final dataset shape: {dataset_csi.element_spec}")  # Should show (None,340,100,4), ...
-    
+    dataset_csi = dataset_csi.cache(cache_file)
     if shuffle:
         dataset_csi = dataset_csi.shuffle(len(labels_stride))
-    dataset_csi = dataset_csi.apply(tf.data.experimental.assert_cardinality(len(labels_stride)))
-    dataset_csi = dataset_csi.cache(cache_file)
     if repeat:
         dataset_csi = dataset_csi.repeat()
     dataset_csi = dataset_csi.batch(batch_size=batch_size)

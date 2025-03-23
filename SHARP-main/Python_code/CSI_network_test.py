@@ -1,3 +1,4 @@
+
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -23,20 +24,6 @@ from tensorflow.keras.models import load_model
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 import tensorflow as tf
 
-# Add CUDA Path Configuration
-os.environ['PATH'] = '/usr/local/cuda/bin:' + os.environ.get('PATH', '')
-os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
-
-# Configure GPU before any TF operations
-gpus = tf.config.list_physical_devices('GPU')
-if gpus:
-    try:
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        tf.config.set_visible_devices(gpus[0], 'GPU')
-    except RuntimeError as e:
-        print(f"GPU configuration error: {e}")
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
@@ -57,24 +44,6 @@ if __name__ == '__main__':
 
     gpus = tf.config.experimental.list_physical_devices('GPU')
     print(gpus)
-    
-    # Configure GPU memory growth to prevent memory allocation issues
-    if gpus:
-        try:
-            # Set TensorFlow to only allocate GPU memory as needed
-            for gpu in gpus:
-                tf.config.experimental.set_memory_growth(gpu, True)
-            
-            # Optional: Limit GPU memory
-            # Uncomment the following to restrict GPU memory usage
-            # tf.config.experimental.set_virtual_device_configuration(
-            #     gpus[0],
-            #     [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=1024)]
-            # )
-            
-            print("GPU memory growth enabled")
-        except RuntimeError as e:
-            print(f"Error configuring GPU: {e}")
 
     bandwidth = args.bandwidth
     sub_band = args.sub_band
@@ -88,22 +57,9 @@ if __name__ == '__main__':
     suffix = '.txt'
 
     name_base = args.name_base
-    # Create activity string with underscores instead of commas for filenames
-    activity_str = csi_act.replace(',', '_')
-    
-    # Clean up any existing cache files and lockfiles to prevent conflicts
-    cache_prefix = name_base + '_' + activity_str + '_cache_complete'
-    # Check for data file
-    if os.path.exists(cache_prefix + '.data-00000-of-00001'):
-        os.remove(cache_prefix + '.data-00000-of-00001')
-    # Check for index file  
-    if os.path.exists(cache_prefix + '.index'):
-        os.remove(cache_prefix + '.index')
-    # Check for lockfiles (they end with .lockfile or _*.lockfile)
-    for f in os.listdir('.'):
-        if f.startswith(cache_prefix) and f.endswith('.lockfile'):
-            print(f"Removing lockfile: {f}")
-            os.remove(f)
+    if os.path.exists(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_complete.data-00000-of-00001'):
+        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_complete.data-00000-of-00001')
+        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_complete.index')
 
     subdirs_complete = args.subdirs  # string
     labels_complete = []
@@ -121,12 +77,11 @@ if __name__ == '__main__':
 
     for sdir in subdirs_complete.split(','):
         exp_save_dir = args.dir + sdir + '/'
-        csi_act_converted = "_".join(csi_act.split(','))
-        dir_complete = args.dir + sdir + '/complete_antennas_' + csi_act_converted + '/'
-        name_labels = args.dir + sdir + '/labels_complete_antennas_' + csi_act_converted + suffix
+        dir_complete = args.dir + sdir + '/complete_antennas_' +  '_'.join(csi_act.split(',')) + '/'
+        name_labels = args.dir + sdir + '/labels_complete_antennas_' +  '_'.join(csi_act.split(',')) + suffix
         with open(name_labels, "rb") as fp:  # Unpickling
             labels_complete.extend(pickle.load(fp))
-        name_f = args.dir + sdir + '/files_complete_antennas_' + csi_act_converted + suffix
+        name_f = args.dir + sdir + '/files_complete_antennas_' +  '_'.join(csi_act.split(',')) + suffix
         with open(name_f, "rb") as fp:  # Unpickling
             all_files_complete.extend(pickle.load(fp))
 
@@ -138,96 +93,12 @@ if __name__ == '__main__':
     file_complete_selected_expanded, labels_complete_selected_expanded, stream_ant_complete = \
         expand_antennas(file_complete_selected, labels_complete_selected, num_antennas)
 
-    # Convert commas to underscores in the activity string to match the model and cache filenames
-    activity_str = str(csi_act).replace(',', '_')
-    
     dataset_csi_complete = create_dataset_single(file_complete_selected_expanded, labels_complete_selected_expanded,
                                                  stream_ant_complete, input_network, batch_size, shuffle=False,
-                                                 cache_file=name_base + '_' + activity_str + '_cache_complete')
+                                                 cache_file=name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_complete')
 
-    # Model Loading Improvements - Replace custom loss wrapper with direct specification
-    custom_objects = {
-        'SparseCategoricalCrossentropy': tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    }
-    
-    name_model_h5 = name_base + '_' + activity_str + '_network.h5'
-    name_model_keras = name_base + '_' + activity_str + '_network.keras'
-    
-    # Full GPU Execution Workflow
-    physical_devices = tf.config.list_physical_devices('GPU')
-    model_loaded = False
-    
-    if physical_devices:
-        try:
-            # Run everything on GPU
-            with tf.device('/GPU:0'):
-                # Try loading with .keras extension first
-                if os.path.exists(name_model_keras):
-                    csi_model = load_model(name_model_keras, custom_objects=custom_objects)
-                    model_loaded = True
-                    print("Model loaded successfully with .keras format on GPU!")
-                # Try loading with .h5 extension if .keras failed
-                elif os.path.exists(name_model_h5):
-                    csi_model = load_model(name_model_h5, custom_objects=custom_objects)
-                    model_loaded = True
-                    print("Model loaded successfully with .h5 format on GPU!")
-        except Exception as e:
-            print(f"GPU model loading failed: {str(e)}")
-            # Will implement fallback logic below
-    
-    # If GPU loading failed or no GPU available, try CPU
-    if not model_loaded:
-        print("Falling back to CPU for model loading")
-        # Disable GPU
-        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-        tf.config.set_visible_devices([], 'GPU')
-        
-        try:
-            # Try loading with .keras extension first
-            if os.path.exists(name_model_keras):
-                csi_model = load_model(name_model_keras, custom_objects=custom_objects)
-                model_loaded = True
-                print("Model loaded successfully with .keras format on CPU!")
-            # Try loading with .h5 extension if .keras failed
-            elif os.path.exists(name_model_h5):
-                csi_model = load_model(name_model_h5, custom_objects=custom_objects)
-                model_loaded = True
-                print("Model loaded successfully with .h5 format on CPU!")
-        except Exception as e:
-            print(f"CPU model loading failed: {str(e)}")
-            # Try legacy loading approach
-            try:
-                import h5py
-                import json
-                print("Attempting to load model with lower-level API")
-                
-                with h5py.File(name_model_h5, 'r') as f:
-                    model_config = f.attrs.get('model_config')
-                    if model_config is None:
-                        model_config = json.loads(f.attrs.get('model_config').decode('utf-8'))
-                    else:
-                        model_config = json.loads(model_config)
-                    
-                    # Create model from config
-                    from tensorflow.keras.models import model_from_json
-                    model = model_from_json(json.dumps(model_config))
-                    
-                    # Load weights
-                    model.load_weights(name_model_h5)
-                    
-                    # Compile with default optimizer and loss
-                    model.compile(
-                        optimizer='adam',
-                        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-                        metrics=['accuracy']
-                    )
-                    
-                    csi_model = model
-                    model_loaded = True
-                    print("Model loaded successfully with legacy approach!")
-            except Exception as e:
-                print(f"Legacy model loading failed: {str(e)}")
-                raise RuntimeError("Could not load the model with any strategy.")
+    name_model = name_base + '_' +  '_'.join(csi_act.split(',')) + '_network.h5'
+    csi_model = load_model(name_model)
 
     num_samples_complete = len(file_complete_selected_expanded)
     lab_complete, count_complete = np.unique(labels_complete_selected_expanded, return_counts=True)
@@ -235,42 +106,8 @@ if __name__ == '__main__':
 
     # complete
     complete_labels_true = np.array(labels_complete_selected_expanded)
-    
-    # Run prediction with proper GPU/CPU fallback
-    if physical_devices and model_loaded and 'CUDA_VISIBLE_DEVICES' not in os.environ:
-        try:
-            # Try to run the prediction on GPU
-            with tf.device('/GPU:0'):
-                complete_prediction_list = csi_model.predict(dataset_csi_complete,
-                                                            steps=complete_steps_per_epoch)[:complete_labels_true.shape[0]]
-                print("Prediction completed successfully on GPU")
-        except Exception as e:
-            print(f"GPU prediction failed: {str(e)}")
-            print("Falling back to CPU execution...")
-            
-            # Disable GPU and try again with CPU
-            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-            tf.config.set_visible_devices([], 'GPU')
-            
-            # We need to reload the model for CPU if we were using GPU
-            if 'csi_model' in locals():
-                del csi_model
-            
-            # Load model again with custom objects (for CPU)
-            if os.path.exists(name_model_keras):
-                csi_model = load_model(name_model_keras, custom_objects=custom_objects)
-            else:
-                csi_model = load_model(name_model_h5, custom_objects=custom_objects)
-            
-            # Run prediction on CPU
-            complete_prediction_list = csi_model.predict(dataset_csi_complete,
-                                                            steps=complete_steps_per_epoch)[:complete_labels_true.shape[0]]
-            print("Prediction completed successfully on CPU")
-    else:
-        # Already on CPU or GPU disabled
-        complete_prediction_list = csi_model.predict(dataset_csi_complete,
-                                                    steps=complete_steps_per_epoch)[:complete_labels_true.shape[0]]
-        print("Prediction completed on CPU")
+    complete_prediction_list = csi_model.predict(dataset_csi_complete,
+                                                 steps=complete_steps_per_epoch)[:complete_labels_true.shape[0]]
 
     complete_labels_pred = np.argmax(complete_prediction_list, axis=1)
 
@@ -303,7 +140,7 @@ if __name__ == '__main__':
             lab_max_merge = lab_unique[0]
         pred_max_merge[i_lab] = lab_max_merge
 
-    conf_matrix_max_merge = confusion_matrix(labels_true_merge, pred_max_merge, labels=labels_considered)
+    conf_matrix_max_merge = confusion_matrix(labels_true_merge, pred_max_merge, labels_considered)
     precision_max_merge, recall_max_merge, fscore_max_merge, _ = \
         precision_recall_fscore_support(labels_true_merge, pred_max_merge, labels=labels_considered, zero_division=0)
     accuracy_max_merge = accuracy_score(labels_true_merge, pred_max_merge)
@@ -319,7 +156,7 @@ if __name__ == '__main__':
                            'recall_max_merge': recall_max_merge,
                            'fscore_max_merge': fscore_max_merge}
 
-    name_file = './outputs/complete_different_' + csi_act_converted + '_' + subdirs_complete + '_band_' + str(bandwidth) \
+    name_file = './outputs/complete_different_' +  '_'.join(csi_act.split(',')) + '_' + subdirs_complete + '_band_' + str(bandwidth) \
                 + '_subband_' + str(sub_band) + suffix
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)
@@ -377,7 +214,7 @@ if __name__ == '__main__':
     metrics_matrix_dict = {'average_accuracy_change_num_ant': average_accuracy_change_num_ant,
                            'average_fscore_change_num_ant': average_fscore_change_num_ant}
 
-    name_file = './outputs/change_number_antennas_complete_different_' + csi_act_converted + '_' + subdirs_complete + \
+    name_file = './outputs/change_number_antennas_complete_different_' +  '_'.join(csi_act.split(',')) + '_' + subdirs_complete + \
                 '_band_' + str(bandwidth) + '_subband_' + str(sub_band) + '.txt'
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)

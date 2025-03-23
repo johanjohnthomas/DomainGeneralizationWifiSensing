@@ -168,7 +168,8 @@ if __name__ == '__main__':
             csi_matrices_wind, labels_wind = create_windows_antennas(csi_complete, labels, window_length, stride_length,
                                                                      remove_mean=False)
 
-            num_windows = ((np.asarray(lengths) - window_length + stride_length) // stride_length)
+            num_windows = sum((length_i - window_length) // stride_length + 1 for length_i in lengths)
+
             print(f"Window length: {window_length}, Stride length: {stride_length}")
             print(f"Lengths of data: {lengths}")  # Use correct variable name
             print(f"Calculated number of windows: {num_windows}")
@@ -177,6 +178,10 @@ if __name__ == '__main__':
                 print(f'ERROR - shapes mismatch: got {len(csi_matrices_wind)}, expected {np.sum(num_windows)}')
             else:
                 print(f"Created {len(csi_matrices_wind)} windows successfully")
+            print("Per-sequence window counts:")
+            for i, length_i in enumerate(lengths):
+                seq_windows = (length_i - window_length) // stride_length + 1
+                print(f"  Sequence {i} (len={length_i}): {seq_windows} windows")
 
             names_complete = []
             suffix = '.txt'

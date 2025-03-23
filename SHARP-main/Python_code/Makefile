@@ -45,6 +45,7 @@ TF_ENV_VARS = XLA_FLAGS="--xla_gpu_cuda_data_dir=/usr/lib/cuda --xla_gpu_unsafe_
 
 # Comma-separated experiment setups (no spaces)
 AR_SETUPS = $(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)
+#AR_SETUPS = $(KITCHEN),$(LABORATORY)
 .PHONY: all clean data_processing datasets train test metrics plots all_plots \
         rq1 rq4 leave_one_out varying_sources cross_domain
 
@@ -97,6 +98,10 @@ datasets:
 # Research Question Entry Points
 rq1: leave_one_out
 rq4: varying_sources
+
+test_training:
+	make train TEST_DOMAINS="$(KITCHEN)" TRAIN_DOMAINS="$(LABORATORY)" MODEL_NAME=no_kitchen
+	make test TEST_DOMAINS="$(KITCHEN)" MODEL_NAME=no_kitchen
 
 # Leave-One-Domain-Out Evaluation (RQ1)
 leave_one_out: leave_one_bedroom leave_one_living leave_one_kitchen leave_one_lab leave_one_office leave_one_semi

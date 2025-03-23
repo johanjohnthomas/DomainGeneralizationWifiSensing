@@ -170,22 +170,29 @@ if __name__ == '__main__':
             length_test = []
             for i in range(len(labels)):
                 ll = lengths[i]
-                total_len = ll - 2 * mt.ceil(num_packets/args.sliding)  # Account for sliding
+                truncate = mt.ceil(num_packets / args.sliding)
+                # Truncate the data to remove initial and final segments
+                truncated_data = csi_matrices[i][:, :, truncate : ll - truncate]
+                total_len = truncated_data.shape[2]
+                
                 train_len = int(total_len * 0.6)
-                length_train.append(train_len)
-                csi_train.append(csi_matrices[i][:, :, :train_len])
-
-                start_val = train_len + mt.ceil(num_packets/args.sliding)
                 val_len = int(total_len * 0.2)
                 test_len = total_len - train_len - val_len
-                length_val.append(val_len)
-                csi_val.append(csi_matrices[i][:, :, start_val:start_val + val_len])
 
-                start_test = start_val + val_len + mt.ceil(num_packets/args.sliding)
-                length_test.append(ll - val_len - train_len - 2*mt.ceil(num_packets/args.sliding))
-                csi_test.append(csi_matrices[i][:, :, start_test:])
-            
+                # Split the truncated data contiguously
+                csi_train.append(truncated_data[:, :, :train_len])
+                length_train.append(train_len)
+
+                csi_val.append(truncated_data[:, :, train_len : train_len + val_len])
+                length_val.append(val_len)
+
+                csi_test.append(truncated_data[:, :, train_len + val_len :])
+                length_test.append(test_len)
+
             print(f"Split data: train={len(csi_train)}, val={len(csi_val)}, test={len(csi_test)}")
+            print(f"Truncated data shape: {truncated_data.shape}")
+            print(f"Train len: {train_len}, Val len: {val_len}, Test len: {test_len}")
+
 
             window_length = args.windows_length  # number of windows considered
             stride_length = args.stride_lengths
@@ -198,8 +205,7 @@ if __name__ == '__main__':
                 print(f"Processing {list_sets_name[set_idx]} set")
                 csi_matrices_set, labels_set = create_windows_antennas(list_sets[set_idx], labels, window_length,
                                                                        stride_length, remove_mean=False)
-
-                num_windows = ((np.asarray(list_sets_lengths[set_idx]) - window_length + stride_length) // stride_length)
+                num_windows = ((np.asarray(list_sets_lengths[set_idx]) - window_length) // stride_length) + 1
                 print(f"Window length: {window_length}, Stride length: {stride_length}")
                 print(f"Lengths of data: {list_sets_lengths[set_idx]}")
                 print(f"Calculated number of windows: {num_windows}")

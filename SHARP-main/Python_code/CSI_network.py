@@ -1,3 +1,4 @@
+
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -21,39 +22,7 @@ import os
 from dataset_utility import create_dataset_single, expand_antennas
 from network_utility import *
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
-import glob
-import keras.backend as K
 
-# GPU memory and device placement fixes
-import os
-import tensorflow as tf
-
-# Set environment variables to help with device placement
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TensorFlow logging
-os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true' 
-os.environ['TF_GPU_THREAD_MODE'] = 'gpu_private'
-os.environ['TF_XLA_FLAGS'] = '--tf_xla_auto_jit=0'  # Disable XLA auto-clustering
-
-# Configure GPU properly
-gpus = tf.config.experimental.list_physical_devices('GPU')
-if gpus:
-    try:
-        # Configure memory growth to avoid taking all GPU memory at once
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-            print(f"Memory growth enabled for {gpu}")
-        
-        # Use only the first GPU if multiple are available
-        tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
-        
-        # Enable soft device placement to automatically place ops on the right device
-        tf.config.set_soft_device_placement(True)
-        print("GPU configuration complete")
-    except Exception as e:
-        print(f"GPU configuration error: {e}")
-
-physical_devices = tf.config.list_physical_devices()
-print("Available devices:", physical_devices)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
@@ -70,56 +39,33 @@ if __name__ == '__main__':
                                             '(default 80)', default=80, required=False, type=int)
     parser.add_argument('--sub_band', help='Sub_band idx in [1, 2, 3, 4] for 20 MHz, [1, 2] for 40 MHz '
                                            '(default 1)', default=1, required=False, type=int)
-    # Add command-line arguments for component ablation studies (RQ5)
-    parser.add_argument('--no-phase-sanitization', action='store_true',
-                        help='Disable phase sanitization for ablation studies')
-    parser.add_argument('--no-antenna-random', action='store_true',
-                        help='Disable antenna randomization for ablation studies')
     args = parser.parse_args()
 
     gpus = tf.config.experimental.list_physical_devices('GPU')
     print(gpus)
 
-    # Print component ablation status
-    if args.no_phase_sanitization:
-        print("===============================================")
-        print("ABLATION STUDY: Phase sanitization is DISABLED")
-        print("===============================================")
-    if args.no_antenna_random:
-        print("===============================================")
-        print("ABLATION STUDY: Antenna randomization is DISABLED")
-        print("===============================================")
-
     bandwidth = args.bandwidth
     sub_band = args.sub_band
 
     csi_act = args.activities
-    # Convert commas to underscores for filename construction
-    activity_str = csi_act.replace(',', '_')
-    
     activities = []
     for lab_act in csi_act.split(','):
         activities.append(lab_act)
     activities = np.asarray(activities)
 
     name_base = args.name_base
-    # Remove all cache files using glob pattern instead of hardcoded filenames
-    for f in glob.glob(f"{name_base}_{activity_str}_cache_train*"):
-        if os.path.exists(f):
-            os.remove(f)
-    for f in glob.glob(f"{name_base}_{activity_str}_cache_val*"):
-        if os.path.exists(f):
-            os.remove(f)
-    for f in glob.glob(f"{name_base}_{activity_str}_cache_train_test*"):
-        if os.path.exists(f):
-            os.remove(f)
-    for f in glob.glob(f"{name_base}_{activity_str}_cache_test*"):
-        if os.path.exists(f):
-            os.remove(f)
-    # Also remove any lockfiles that might be present
-    for f in glob.glob(f"{name_base}_{activity_str}_cache_*.lockfile"):
-        if os.path.exists(f):
-            os.remove(f)
+    if os.path.exists(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train.data-00000-of-00001'):
+        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train.data-00000-of-00001')
+        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train.index')
+    if os.path.exists(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_val.data-00000-of-00001'):
+        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_val.data-00000-of-00001')
+        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_val.index')
+    if os.path.exists(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train_test.data-00000-of-00001'):
+        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train_test.data-00000-of-00001')
+        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train_test.index')
+    if os.path.exists(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_test.data-00000-of-00001'):
+        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_test.data-00000-of-00001')
+        os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_test.index')
 
     subdirs_training = args.subdirs  # string
     labels_train = []
@@ -143,27 +89,27 @@ if __name__ == '__main__':
 
     for sdir in subdirs_training.split(','):
         exp_save_dir = args.dir + sdir + '/'
-        dir_train = args.dir + sdir + '/train_antennas_' + activity_str + '/'
-        name_labels = args.dir + sdir + '/labels_train_antennas_' + activity_str + suffix
+        dir_train = args.dir + sdir + '/train_antennas_' +  '_'.join(csi_act.split(',')) + '/'
+        name_labels = args.dir + sdir + '/labels_train_antennas_' +  '_'.join(csi_act.split(',')) + suffix
         with open(name_labels, "rb") as fp:  # Unpickling
             labels_train.extend(pickle.load(fp))
-        name_f = args.dir + sdir + '/files_train_antennas_' + activity_str + suffix
+        name_f = args.dir + sdir + '/files_train_antennas_' +  '_'.join(csi_act.split(',')) + suffix
         with open(name_f, "rb") as fp:  # Unpickling
             all_files_train.extend(pickle.load(fp))
 
-        dir_val = args.dir + sdir + '/val_antennas_' + activity_str + '/'
-        name_labels = args.dir + sdir + '/labels_val_antennas_' + activity_str + suffix
+        dir_val = args.dir + sdir + '/val_antennas_' +  '_'.join(csi_act.split(',')) + '/'
+        name_labels = args.dir + sdir + '/labels_val_antennas_' +  '_'.join(csi_act.split(',')) + suffix
         with open(name_labels, "rb") as fp:  # Unpickling
             labels_val.extend(pickle.load(fp))
-        name_f = args.dir + sdir + '/files_val_antennas_' + activity_str + suffix
+        name_f = args.dir + sdir + '/files_val_antennas_' +  '_'.join(csi_act.split(',')) + suffix
         with open(name_f, "rb") as fp:  # Unpickling
             all_files_val.extend(pickle.load(fp))
 
-        dir_test = args.dir + sdir + '/test_antennas_' + activity_str + '/'
-        name_labels = args.dir + sdir + '/labels_test_antennas_' + activity_str + suffix
+        dir_test = args.dir + sdir + '/test_antennas_' +  '_'.join(csi_act.split(',')) + '/'
+        name_labels = args.dir + sdir + '/labels_test_antennas_' +  '_'.join(csi_act.split(',')) + suffix
         with open(name_labels, "rb") as fp:  # Unpickling
             labels_test.extend(pickle.load(fp))
-        name_f = args.dir + sdir + '/files_test_antennas_' + activity_str + suffix
+        name_f = args.dir + sdir + '/files_test_antennas_' +  '_'.join(csi_act.split(',')) + suffix
         with open(name_f, "rb") as fp:  # Unpickling
             all_files_test.extend(pickle.load(fp))
 
@@ -175,24 +121,10 @@ if __name__ == '__main__':
     file_train_selected_expanded, labels_train_selected_expanded, stream_ant_train = \
         expand_antennas(file_train_selected, labels_train_selected, num_antennas)
 
-    name_cache = name_base + '_' + activity_str + '_cache_train'
-    
-    # Conditional dataset creation based on ablation flags
-    if args.no_antenna_random:
-        print("ABLATION: Antenna randomization disabled")
-        dataset_csi_train = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
-                                                stream_ant_train, input_network, batch_size,
-                                                shuffle=True, cache_file=name_cache, 
-                                                sanitize_phase=not args.no_phase_sanitization)
-    else:
-        print("Using antenna randomization")
-        # Import the randomized dataset creation function if needed
-        from dataset_utility import create_dataset_randomized_antennas
-        dataset_csi_train = create_dataset_randomized_antennas(file_train_selected_expanded, 
-                                                              labels_train_selected_expanded,
-                                                              input_network, batch_size,
-                                                              shuffle=True, cache_file=name_cache,
-                                                              sanitize_phase=not args.no_phase_sanitization)
+    name_cache = name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train'
+    dataset_csi_train = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
+                                              stream_ant_train, input_network, batch_size,
+                                              shuffle=True, cache_file=name_cache)
 
     file_val_selected = [all_files_val[idx] for idx in range(len(labels_val)) if labels_val[idx] in
                          labels_considered]
@@ -202,21 +134,10 @@ if __name__ == '__main__':
     file_val_selected_expanded, labels_val_selected_expanded, stream_ant_val = \
         expand_antennas(file_val_selected, labels_val_selected, num_antennas)
 
-    name_cache_val = name_base + '_' + activity_str + '_cache_val'
-    
-    # Apply same conditional logic to validation dataset
-    if args.no_antenna_random:
-        dataset_csi_val = create_dataset_single(file_val_selected_expanded, labels_val_selected_expanded,
-                                               stream_ant_val, input_network, batch_size,
-                                               shuffle=False, cache_file=name_cache_val,
-                                               sanitize_phase=not args.no_phase_sanitization)
-    else:
-        from dataset_utility import create_dataset_randomized_antennas
-        dataset_csi_val = create_dataset_randomized_antennas(file_val_selected_expanded, 
-                                                            labels_val_selected_expanded,
-                                                            input_network, batch_size,
-                                                            shuffle=False, cache_file=name_cache_val,
-                                                            sanitize_phase=not args.no_phase_sanitization)
+    name_cache_val = name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_val'
+    dataset_csi_val = create_dataset_single(file_val_selected_expanded, labels_val_selected_expanded,
+                                            stream_ant_val, input_network, batch_size,
+                                            shuffle=False, cache_file=name_cache_val)
 
     file_test_selected = [all_files_test[idx] for idx in range(len(labels_test)) if labels_test[idx] in
                           labels_considered]
@@ -226,39 +147,18 @@ if __name__ == '__main__':
     file_test_selected_expanded, labels_test_selected_expanded, stream_ant_test = \
         expand_antennas(file_test_selected, labels_test_selected, num_antennas)
 
-    name_cache_test = name_base + '_' + activity_str + '_cache_test'
-    
-    # Apply same conditional logic to test dataset
-    if args.no_antenna_random:
-        dataset_csi_test = create_dataset_single(file_test_selected_expanded, labels_test_selected_expanded,
-                                                stream_ant_test, input_network, batch_size,
-                                                shuffle=False, cache_file=name_cache_test,
-                                                sanitize_phase=not args.no_phase_sanitization)
-    else:
-        from dataset_utility import create_dataset_randomized_antennas
-        dataset_csi_test = create_dataset_randomized_antennas(file_test_selected_expanded, 
-                                                             labels_test_selected_expanded,
-                                                             input_network, batch_size,
-                                                             shuffle=False, cache_file=name_cache_test,
-                                                             sanitize_phase=not args.no_phase_sanitization)
-                                             
-    # Create model variables
-    # This fixes the device placement issue by ensuring all variables are pinned to GPU
-    mirrored_strategy = tf.distribute.MirroredStrategy(devices=["/GPU:0"])
-    with mirrored_strategy.scope():
-        # Create the model and compile it within the strategy scope
-        # This ensures all variables are created on the same device
-        csi_model = csi_network_inc_res(input_network, output_shape)
-        
-        # Configure optimizer and loss
-        optimiz = tf.keras.optimizers.Adam(learning_rate=0.0001)
-        loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits='True')
-        
-        # Compile model
-        csi_model.compile(optimizer=optimiz, loss=loss, metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
-        
-    # Display model summary
+    name_cache_test = name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_test'
+    dataset_csi_test = create_dataset_single(file_test_selected_expanded, labels_test_selected_expanded,
+                                             stream_ant_test, input_network, batch_size,
+                                             shuffle=False, cache_file=name_cache_test)
+
+    csi_model = csi_network_inc_res(input_network, output_shape)
     csi_model.summary()
+
+    optimiz = tf.keras.optimizers.Adam(learning_rate=0.0001)
+
+    loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits='True')
+    csi_model.compile(optimizer=optimiz, loss=loss, metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
 
     num_samples_train = len(file_train_selected_expanded)
     num_samples_val = len(file_val_selected_expanded)
@@ -272,85 +172,45 @@ if __name__ == '__main__':
 
     callback_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
 
-    name_model_h5 = name_base + '_' + activity_str
-    # Add ablation flags to model name
-    if args.no_phase_sanitization:
-        name_model_h5 += '_no_phase'
-    if args.no_antenna_random:
-        name_model_h5 += '_no_antenna'
-    name_model_h5 += '_network.keras'  # For HDF5
-    
-    name_model_tf = name_base + '_' + activity_str
-    # Add ablation flags to model name
-    if args.no_phase_sanitization:
-        name_model_tf += '_no_phase'
-    if args.no_antenna_random:
-        name_model_tf += '_no_antenna'
-    name_model_tf += '_network'     # For SavedModel (directory)
-    
-    callback_save = tf.keras.callbacks.ModelCheckpoint(
-        name_model_h5, 
-        save_freq='epoch', 
-        save_best_only=True,
-        monitor='val_sparse_categorical_accuracy'
-    )
+    name_model = name_base + '_' +  '_'.join(csi_act.split(',')) + '_network.h5'
+    callback_save = tf.keras.callbacks.ModelCheckpoint(name_model, save_freq='epoch', save_best_only=True,
+                                                       monitor='val_sparse_categorical_accuracy')
 
-    # Verify input shape matches model's expected input shape
-    sample_batch = next(iter(dataset_csi_train))
-    print(f"Actual input shape: {sample_batch[0].shape}")  # Should show batch size and input dimensions
-    print(f"Model expected shape: {csi_model.input_shape}")  # Should match except for batch dimension
-
-    # Train model with GPU acceleration
-    # Since we created it with MirroredStrategy, the variables are properly located on GPU
     results = csi_model.fit(dataset_csi_train, epochs=25, steps_per_epoch=train_steps_per_epoch,
-                          validation_data=dataset_csi_val, validation_steps=val_steps_per_epoch,
-                          callbacks=[callback_save, callback_stop])
+                            validation_data=dataset_csi_val, validation_steps=val_steps_per_epoch,
+                            callbacks=[callback_save, callback_stop])
 
-    # Save model in Keras format (compatible with Keras 3)
-    csi_model.save(name_model_h5)
-    
-    # Save component ablation information to a metadata file
-    component_ablation_info = {
-        "no_phase_sanitization": args.no_phase_sanitization,
-        "no_antenna_randomization": args.no_antenna_random
-    }
-    
-    # Save as a pickle file with the same base name
-    ablation_metadata_file = name_base + '_' + activity_str + '_ablation_metadata.pkl'
-    with open(ablation_metadata_file, 'wb') as f:
-        pickle.dump(component_ablation_info, f)
-    print(f"Saved component ablation metadata to {ablation_metadata_file}")
-    
-    # Clear TensorFlow session to free memory
-    K.clear_session()
-    
-    # Load the saved model with the same strategy to ensure consistent device placement
-    with mirrored_strategy.scope():
-        csi_model = tf.keras.models.load_model(name_model_h5)
+    csi_model.save(name_model)
 
-    # Make predictions on training set
+    csi_model = tf.keras.models.load_model(name_model)
+
+    # train
     train_labels_true = np.array(labels_train_selected_expanded)
-    name_cache_train_test = name_base + '_' + activity_str + '_cache_train_test'
+
+    name_cache_train_test = name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_train_test'
     dataset_csi_train_test = create_dataset_single(file_train_selected_expanded, labels_train_selected_expanded,
-                                                 stream_ant_train, input_network, batch_size,
-                                                 shuffle=False, cache_file=name_cache_train_test, prefetch=False)
-    
-    train_prediction_list = csi_model.predict(dataset_csi_train_test, 
-                                            steps=train_steps_per_epoch)[:train_labels_true.shape[0]]
+                                                   stream_ant_train, input_network, batch_size,
+                                                   shuffle=False, cache_file=name_cache_train_test, prefetch=False)
+    train_prediction_list = csi_model.predict(dataset_csi_train_test,
+                                              steps=train_steps_per_epoch)[:train_labels_true.shape[0]]
+
     train_labels_pred = np.argmax(train_prediction_list, axis=1)
+
     conf_matrix_train = confusion_matrix(train_labels_true, train_labels_pred)
 
-    # Make predictions on validation set
+    # val
     val_labels_true = np.array(labels_val_selected_expanded)
-    val_prediction_list = csi_model.predict(dataset_csi_val, 
-                                          steps=val_steps_per_epoch)[:val_labels_true.shape[0]]
+    val_prediction_list = csi_model.predict(dataset_csi_val, steps=val_steps_per_epoch)[:val_labels_true.shape[0]]
+
     val_labels_pred = np.argmax(val_prediction_list, axis=1)
+
     conf_matrix_val = confusion_matrix(val_labels_true, val_labels_pred)
 
-    # Make predictions on test set
+    # test
     test_labels_true = np.array(labels_test_selected_expanded)
-    test_prediction_list = csi_model.predict(dataset_csi_test, 
-                                          steps=test_steps_per_epoch)[:test_labels_true.shape[0]]
+
+    test_prediction_list = csi_model.predict(dataset_csi_test, steps=test_steps_per_epoch)[
+                            :test_labels_true.shape[0]]
 
     test_labels_pred = np.argmax(test_prediction_list, axis=1)
 
@@ -398,7 +258,7 @@ if __name__ == '__main__':
                            'recall_max_merge': recall_max_merge,
                            'fscore_max_merge': fscore_max_merge}
 
-    name_file = './outputs/test_' + activity_str + '_' + subdirs_training + '_band_' + str(bandwidth) + '_subband_' + \
+    name_file = './outputs/test_' +  '_'.join(csi_act.split(',')) + '_' + subdirs_training + '_band_' + str(bandwidth) + '_subband_' + \
                 str(sub_band) + suffix
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)
@@ -453,7 +313,7 @@ if __name__ == '__main__':
     metrics_matrix_dict = {'average_accuracy_change_num_ant': average_accuracy_change_num_ant,
                            'average_fscore_change_num_ant': average_fscore_change_num_ant}
 
-    name_file = './outputs/change_number_antennas_test_' + activity_str + '_' + subdirs_training + '_band_' + \
+    name_file = './outputs/change_number_antennas_test_' +  '_'.join(csi_act.split(',')) + '_' + subdirs_training + '_band_' + \
                 str(bandwidth) + '_subband_' + str(sub_band) + '.txt'
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)
