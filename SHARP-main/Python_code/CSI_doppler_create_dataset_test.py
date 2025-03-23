@@ -60,10 +60,10 @@ if __name__ == '__main__':
         path_val = os.path.join(exp_dir, f'val_antennas_{activities}')
         path_test = os.path.join(exp_dir, f'test_antennas_{activities}')
         paths = [path_train, path_val, path_test]
-        for pat in paths:
-            if os.path.exists(pat):
-                shutil.rmtree(pat)
-                print(f"Removed directory: {pat}")
+        # for pat in paths:
+        #     if os.path.exists(pat):
+        #         shutil.rmtree(pat)
+        #         print(f"Removed directory: {pat}")
 
         path_complete = os.path.join(exp_dir, f'complete_antennas_{activities}')
         if os.path.exists(path_complete):
