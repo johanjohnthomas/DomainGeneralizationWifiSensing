@@ -156,8 +156,8 @@ if __name__ == '__main__':
                            'recall_max_merge': recall_max_merge,
                            'fscore_max_merge': fscore_max_merge}
 
-    name_file = './outputs/complete_different_' +  '_'.join(csi_act.split(',')) + '_' + subdirs_complete + '_band_' + str(bandwidth) \
-                + '_subband_' + str(sub_band) + suffix
+    name_file = f'./outputs/complete_different_{name_base}_{"_".join(csi_act.split(","))}_{subdirs_complete}_band_{bandwidth}_subband_{sub_band}.txt'
+
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)
     print('accuracy', accuracy_max_merge)

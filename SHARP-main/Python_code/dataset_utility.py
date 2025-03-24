@@ -176,5 +176,5 @@ def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_sha
         dataset_csi = dataset_csi.repeat()
     dataset_csi = dataset_csi.batch(batch_size=batch_size)
     if prefetch:
-        dataset_csi = dataset_csi.prefetch(buffer_size=1)
+        dataset_csi = dataset_csi.prefetch(tf.data.AUTOTUNE)
     return dataset_csi

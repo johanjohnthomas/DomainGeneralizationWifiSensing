@@ -6,6 +6,43 @@ DATASET_DIR = ./datasets/
 MODEL_DIR = ./models/
 RESULTS_DIR = ./results/
 
+# CUDA Environment Configuration for TensorFlow
+CUDA_HOME = /usr/lib/cuda
+CUDNN_PATH = /usr/lib/x86_64-linux-gnu
+
+# TensorFlow Environment Variables for proper GPU operation
+TF_ENV_VARS = CUDA_HOME=$(CUDA_HOME) \
+              CUDNN_PATH=$(CUDNN_PATH) \
+              TF_CUDA_PATHS=$(CUDA_HOME) \
+              XLA_FLAGS="--xla_gpu_cuda_data_dir=$(CUDA_HOME) --xla_gpu_unsafe_fallback_to_driver_on_ptxas_not_found" \
+              TF_FORCE_GPU_ALLOW_GROWTH=true \
+              TF_DEVICE_PLACEMENT_SILENT=1 \
+              PATH=/usr/bin:$(CUDA_HOME)/bin:$$PATH \
+              LD_LIBRARY_PATH=$(CUDNN_PATH):$(CUDA_HOME)/lib64:$$LD_LIBRARY_PATH
+
+# Add this after existing variable definitions
+RQ_NUMBER = $(shell \
+    if echo "$(MODEL_NAME)" | grep -qE '^no_(bedroom|kitchen|lab|living|office|semi)$$'; then \
+        echo "RQ1_generalization/leave_one_out/$(MODEL_NAME)"; \
+    elif echo "$(MODEL_NAME)" | grep -qE '^source[1-4]$$'; then \
+        num=$$(echo "$(MODEL_NAME)" | sed 's/source//'); \
+        echo "RQ4_source_scaling/source_$$num"; \
+    elif echo "$(MODEL_NAME)" | grep -qE '^no_(antenna_randomization|phase_sanitization)$$'; then \
+        echo "RQ5_component_analysis/$(MODEL_NAME)"; \
+    else \
+        echo "RQ1_generalization/generalization_gap/$(MODEL_NAME)"; \
+    fi)
+RESULTS_PATH = $(RESULTS_DIR)/$(RQ_NUMBER)/
+EXPERIMENT_TYPE := $(shell echo "$(RQ_NUMBER)" | awk -F/ '{print $$2}')
+RQ := $(shell echo "$(RQ_NUMBER)" | awk -F_ '{print $$1}')
+
+
+# Add this target before existing targets
+create_structure:
+	@echo "Creating results directory structure..."
+	@mkdir -p $(RQ_STRUCTURE)
+	@find $(RESULTS_DIR) -type d -exec touch {}/.keep \;
+
 NSS = 1
 NCORES = 4
 SAMPLE_LENGTH = 31
@@ -36,18 +73,24 @@ OFFICE_SPLIT2 = AR8b
 SEMI_SPLIT1 = AR9a,AR9b
 SEMI_SPLIT2 = AR9c
 
-# Add these variables at the top of the Makefile
-TF_ENV_VARS = XLA_FLAGS="--xla_gpu_cuda_data_dir=/usr/lib/cuda --xla_gpu_unsafe_fallback_to_driver_on_ptxas_not_found" \
-              TF_FORCE_GPU_ALLOW_GROWTH=true \
-              TF_DEVICE_PLACEMENT_SILENT=1 \
-			  PATH=/usr/local/cuda/bin:$$PATH \
-			LD_LIBRARY_PATH=/usr/local/cuda/lib64:$$LD_LIBRARY_PATH
-
 # Comma-separated experiment setups (no spaces)
 AR_SETUPS = $(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)
 #AR_SETUPS = $(KITCHEN),$(LABORATORY)
 .PHONY: all clean data_processing datasets train test metrics plots all_plots \
-        rq1 rq4 leave_one_out varying_sources cross_domain
+        rq1 rq4 leave_one_out varying_sources cross_domain check_cuda
+
+# Check CUDA configuration and TensorFlow GPU setup
+check_cuda:
+	@echo "Checking CUDA and TensorFlow configuration..."
+	@echo "CUDA_HOME: $(CUDA_HOME)"
+	@echo "CUDNN_PATH: $(CUDNN_PATH)"
+	@echo "Verifying ptxas installation..."
+	@which ptxas || echo "WARNING: ptxas not found in PATH!"
+	@echo "Creating necessary symlinks for TensorFlow..."
+	@chmod +x create_ptxas_symlink.sh
+	@./create_ptxas_symlink.sh
+	@echo "Testing TensorFlow GPU integration..."
+	$(TF_ENV_VARS) python check_tf_gpu.py
 
 all: data_processing datasets train test metrics plots
 
@@ -100,54 +143,43 @@ rq1: leave_one_out
 rq4: varying_sources
 
 test_training:
-	make train TEST_DOMAINS="$(KITCHEN)" TRAIN_DOMAINS="$(LABORATORY)" MODEL_NAME=no_kitchen
-	make test TEST_DOMAINS="$(KITCHEN)" MODEL_NAME=no_kitchen
+	make run_complete TEST_DOMAINS="$(KITCHEN)" TRAIN_DOMAINS="$(LABORATORY)" MODEL_NAME=no_bedroom
 
 # Leave-One-Domain-Out Evaluation (RQ1)
 leave_one_out: leave_one_bedroom leave_one_living leave_one_kitchen leave_one_lab leave_one_office leave_one_semi
 
 leave_one_bedroom:
-	make train TEST_DOMAINS="$(BEDROOM)" TRAIN_DOMAINS="$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_bedroom
-	make test
+	make run_complete TEST_DOMAINS="$(BEDROOM)" TRAIN_DOMAINS="$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_bedroom
 
 leave_one_living:
-	make train TEST_DOMAINS="$(LIVING_ROOM)" TRAIN_DOMAINS="$(BEDROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_living
-	make test
+	make run_complete TEST_DOMAINS="$(LIVING_ROOM)" TRAIN_DOMAINS="$(BEDROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_living
 
 leave_one_kitchen:
-	make train TEST_DOMAINS="$(KITCHEN)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_kitchen
-	make test
+	make run_complete TEST_DOMAINS="$(KITCHEN)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_kitchen
 
 leave_one_lab:
-	make train TEST_DOMAINS="$(LABORATORY)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_lab
-	make test
+	make run_complete TEST_DOMAINS="$(LABORATORY)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_lab
 
 leave_one_office:
-	make train TEST_DOMAINS="$(OFFICE)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(SEMI_ANECHOIC)" MODEL_NAME=no_office
-	make test
+	make run_complete TEST_DOMAINS="$(OFFICE)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(SEMI_ANECHOIC)" MODEL_NAME=no_office
 
 leave_one_semi:
-	make train TEST_DOMAINS="$(SEMI_ANECHOIC)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE)" MODEL_NAME=no_semi
-	make test
+	make run_complete TEST_DOMAINS="$(SEMI_ANECHOIC)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE)" MODEL_NAME=no_semi
 
 # Varying Source Domain Sizes (RQ4)
 varying_sources: source_1 source_2 source_3 source_4
 
 source_1:
-	make train TRAIN_DOMAINS="$(BEDROOM_SPLIT1)" MODEL_NAME=source1
-	make test TEST_DOMAINS="$(BEDROOM_SPLIT2)"
+	make run_complete TRAIN_DOMAINS="$(BEDROOM_SPLIT1)" TEST_DOMAINS="$(BEDROOM_SPLIT2)" MODEL_NAME=source1
 
 source_2:
-	make train TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1)" MODEL_NAME=source2
-	make test TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2)"
+	make run_complete TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1)" TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2)" MODEL_NAME=source2
 
 source_3:
-	make train TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1),$(OFFICE_SPLIT1)" MODEL_NAME=source3
-	make test TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2),$(OFFICE_SPLIT2)"
+	make run_complete TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1),$(OFFICE_SPLIT1)" TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2),$(OFFICE_SPLIT2)" MODEL_NAME=source3
 
 source_4:
-	make train TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1),$(OFFICE_SPLIT1),$(SEMI_SPLIT1)" MODEL_NAME=source4
-	make test TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2),$(OFFICE_SPLIT2),$(SEMI_SPLIT2)"
+	make run_complete TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1),$(OFFICE_SPLIT1),$(SEMI_SPLIT1)" TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2),$(OFFICE_SPLIT2),$(SEMI_SPLIT2)" MODEL_NAME=source4
 
 # Base Targets with Dynamic Domains --------------------------------------------
 train:
@@ -156,20 +188,77 @@ train:
 	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) $(MODEL_NAME) "$(ACTIVITIES)" \
 	--bandwidth 80
 
+# Automated Test Target
 test:
 	$(TF_ENV_VARS) \
 	python CSI_network_test.py "$(DOPPLER_DIR)" "$(TEST_DOMAINS)" \
 	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) $(MODEL_NAME) "$(ACTIVITIES)" \
 	--bandwidth 80
-	@mv ./outputs/complete_*.txt ./results/$(MODEL_NAME)_results.txt
+	
+	@# Auto-create directory structure properly
+	@mkdir -p $(RESULTS_PATH)metrics
+	@mkdir -p $(RESULTS_PATH)model
+	@mkdir -p $(RESULTS_PATH)plots
+	
+	@# Enhanced file matching and logging
+	@echo "Moving results for MODEL_NAME=$(MODEL_NAME) to $(RESULTS_PATH)metrics/"
+	@# Modified pattern to be more flexible in matching the output files
+	@mv ./outputs/complete_different_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null || \
+	 mv ./outputs/complete_different_*_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null || \
+	 echo "Warning: No files found matching either pattern for $(MODEL_NAME). Check output file naming."
+	@mv ./outputs/change_number_antennas_*_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null || true
+
+
+		
+	@# Generate metadata with auto-detected parameters
+	@python generate_meta.py \
+		--model $(MODEL_NAME) \
+		--type $(EXPERIMENT_TYPE) \
+		--rq $(RQ) \
+		--path $(RESULTS_PATH)meta.json
+
+# New comprehensive target - dynamically chained workflow
+run_complete:
+	@echo "===== Starting complete workflow for MODEL_NAME=$(MODEL_NAME) ====="
+	@echo "1. Training model..."
+	@$(MAKE) train
+	@echo "2. Testing model..."
+	@$(MAKE) test
+	@echo "3. Calculating metrics..."
+	@$(MAKE) model_metrics
+	@echo "4. Generating plots..."
+	@$(MAKE) model_plots
+	@echo "===== Complete workflow finished successfully for MODEL_NAME=$(MODEL_NAME) ====="
+
+# Per-model metrics calculation
+model_metrics:
+	@echo "Calculating metrics for $(MODEL_NAME)..."
+	@find $(RESULTS_PATH)metrics -name 'complete_different_*.txt' -exec python CSI_network_metrics.py {} "$(ACTIVITIES)" \;
+	@echo "Metrics calculated and saved to $(RESULTS_PATH)metrics/"
+
+# Per-model plots generation 
+model_plots:
+	@echo "Generating plots for $(MODEL_NAME)..."
+	@mkdir -p $(RESULTS_PATH)plots
+	@# Generate confusion matrix plots
+	@find $(RESULTS_PATH)metrics -name 'confusion_matrix_*.txt' -exec python -W ignore CSI_network_metrics_plot.py {} \; 2>/dev/null || true
+	@# Generate activity plots for specific environments in the test domains
+	@for domain in $(TEST_DOMAINS); do \
+		echo "Creating activity plots for domain: $$domain"; \
+		python CSI_doppler_plot_activities.py "$(DOPPLER_DIR)" "$$domain" $(FEATURE_LENGTH) $(SLIDING) "$(ACTIVITIES)" 0 $(WINDOW_LENGTH) 2>/dev/null || true; \
+	done
+	@# Copy generated plots to the model's plots directory
+	@find ./plots -type f -name "*.png" -o -name "*.pdf" -exec cp {} $(RESULTS_PATH)plots/ \; 2>/dev/null || true
+	@echo "Plots generated and saved to $(RESULTS_PATH)plots/"
+
 
 # Enhanced Metrics for experiments
 metrics:
 	@echo "Calculating metrics for all experiments..."
-	@for result in ./results/*_results.txt; do \
-		python CSI_network_metrics.py "$$result" "$(ACTIVITIES)"; \
-	done
-	@echo "Generated metrics available in ./results/"
+	@mkdir -p $(RESULTS_DIR)  # Ensure base directory exists
+	@find $(RESULTS_DIR) -name 'complete_different_*.txt' -exec python CSI_network_metrics.py {} "$(ACTIVITIES)" \;
+	@echo "Metrics processed in respective RQ directories."
+
 
 # Modified test target with optimized GPU settings (keeping existing content below this line)
 test_original:
