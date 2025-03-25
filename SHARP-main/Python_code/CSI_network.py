@@ -189,6 +189,11 @@ if __name__ == '__main__':
                             validation_data=dataset_csi_val, validation_steps=val_steps_per_epoch,
                             callbacks=[callback_save, callback_stop])
 
+    # Save training history
+    history_file = name_base + '_' + activity_str + '_history.pkl'
+    with open(f"./models/{history_file}", "wb") as fp:
+        pickle.dump(results.history, fp)
+
     csi_model.save(name_model)
 
     csi_model = tf.keras.models.load_model(name_model)

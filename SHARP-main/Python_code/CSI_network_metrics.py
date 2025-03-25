@@ -102,25 +102,66 @@ def get_train_accuracy(experiment_id):
     Returns the final training accuracy or None if not found
     """
     try:
-        history_file = f"./models/{experiment_id}_history.pkl"
-        if os.path.exists(history_file):
-            with open(history_file, "rb") as fp:
-                history = pickle.load(fp)
-                if 'accuracy' in history:
-                    return history['accuracy'][-1]  # Get final training accuracy
-                elif 'acc' in history:
-                    return history['acc'][-1]  # Some models use 'acc' instead
+        # Extract the base experiment ID from the full ID
+        # For example, from "source1_E_W_R_J_L_S_C_G_AR6a" get "source1"
+        base_experiment_id = experiment_id
+        if '_E_W_R_J_L_S_C_G' in experiment_id:
+            base_experiment_id = experiment_id.split('_E_W_R_J_L_S_C_G')[0]
+        elif experiment_id.startswith('no_'):
+            base_experiment_id = experiment_id
         
-        # Fallback to models directory search
-        history_files = glob.glob(f"./models/*{experiment_id}*_history.pkl")
-        if history_files:
-            with open(history_files[0], "rb") as fp:
-                history = pickle.load(fp)
-                if 'accuracy' in history:
-                    return history['accuracy'][-1]
-                elif 'acc' in history:
-                    return history['acc'][-1]
+        print(f"Looking for history file with base experiment ID: {base_experiment_id}")
         
+        # Check common locations for history files with correct pattern
+        search_paths = [
+            f"./models/{base_experiment_id}_history.pkl",                 # Relative path from script execution
+            f"./SHARP-main/Python_code/models/{base_experiment_id}_history.pkl",  # From project root
+            f"../models/{base_experiment_id}_history.pkl",                # Up one level
+            f"models/{base_experiment_id}_history.pkl"                    # Direct models folder
+        ]
+        
+        # First try exact match with experiment_id
+        for path in search_paths:
+            if os.path.exists(path):
+                print(f"Found history file at: {path}")
+                with open(path, "rb") as fp:
+                    history = pickle.load(fp)
+                    # Check for sparse_categorical_accuracy first as it's what we found in the files
+                    if 'sparse_categorical_accuracy' in history:
+                        return history['sparse_categorical_accuracy'][-1]
+                    elif 'accuracy' in history:
+                        return history['accuracy'][-1]
+                    elif 'acc' in history:
+                        return history['acc'][-1]
+        
+        # If exact match failed, try directory search
+        search_dirs = [
+            "./models/",
+            "./SHARP-main/Python_code/models/",
+            "../models/",
+            "models/"
+        ]
+        
+        for search_dir in search_dirs:
+            if os.path.exists(search_dir):
+                # Look for files matching the pattern
+                history_files = glob.glob(f"{search_dir}*{base_experiment_id}*_history.pkl")
+                if history_files:
+                    print(f"Found history file using glob: {history_files[0]}")
+                    with open(history_files[0], "rb") as fp:
+                        history = pickle.load(fp)
+                        if 'sparse_categorical_accuracy' in history:
+                            return history['sparse_categorical_accuracy'][-1]
+                        elif 'accuracy' in history:
+                            return history['accuracy'][-1]
+                        elif 'acc' in history:
+                            return history['acc'][-1]
+        
+        # If nothing found, print diagnostic info
+        print(f"Could not find history file for experiment_id: {experiment_id}")
+        print(f"With base_experiment_id: {base_experiment_id}")
+        print(f"Searched paths: {search_paths}")
+        print(f"Searched directories for pattern matching: {search_dirs}")
         return None
     except Exception as e:
         print(f"Error retrieving training accuracy: {e}")
