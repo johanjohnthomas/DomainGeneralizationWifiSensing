@@ -202,6 +202,22 @@ test:
 	@mkdir -p $(RESULTS_PATH)model
 	@mkdir -p $(RESULTS_PATH)plots
 	
+	@# Move model files to the results directory
+	@echo "Moving model for MODEL_NAME=$(MODEL_NAME) to $(RESULTS_PATH)model/"
+	@if [ -f "$(MODEL_NAME)_$(ACTIVITIES)_network.h5" ]; then \
+		cp "$(MODEL_NAME)_$(ACTIVITIES)_network.h5" "$(RESULTS_PATH)model/" && \
+		echo "Model file $(MODEL_NAME)_$(ACTIVITIES)_network.h5 copied to $(RESULTS_PATH)model/"; \
+	else \
+		echo "Warning: Model file $(MODEL_NAME)_$(ACTIVITIES)_network.h5 not found."; \
+		echo "Looking for alternative model files:"; \
+		find . -maxdepth 1 -name "$(MODEL_NAME)*_network.h5" -o -name "*$(MODEL_NAME)*_network.h5"; \
+		for model_file in $$(find . -maxdepth 1 -name "$(MODEL_NAME)*_network.h5" -o -name "*$(MODEL_NAME)*_network.h5"); do \
+			echo "Found model file: $$model_file"; \
+			cp "$$model_file" "$(RESULTS_PATH)model/" && \
+			echo "Model file $$model_file copied to $(RESULTS_PATH)model/"; \
+		done; \
+	fi
+	
 	@# Enhanced file matching and logging
 	@echo "Moving results for MODEL_NAME=$(MODEL_NAME) to $(RESULTS_PATH)metrics/"
 	@# Modified pattern to be more flexible in matching the output files
