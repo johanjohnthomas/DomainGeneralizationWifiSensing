@@ -213,7 +213,6 @@ if __name__ == '__main__':
     metrics_matrix_dict = {'average_accuracy_change_num_ant': average_accuracy_change_num_ant,
                            'average_fscore_change_num_ant': average_fscore_change_num_ant}
 
-    name_file = './results/change_number_antennas_complete_different_' +  '_'.join(csi_act.split(',')) + '_' + subdirs_complete + \
-                '_band_' + str(bandwidth) + '_subband_' + str(sub_band) + '.txt'
+    name_file = f'./results/change_number_antennas_complete_different_{name_base}_{"_".join(csi_act.split(","))}_{subdirs_complete}_band_{bandwidth}_subband_{sub_band}.txt'
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)

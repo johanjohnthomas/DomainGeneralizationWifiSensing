@@ -208,7 +208,8 @@ test:
 	@mv ./results/complete_different_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null || \
 	 mv ./results/complete_different_*_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null || \
 	 echo "Warning: No files found matching either pattern for $(MODEL_NAME). Check output file naming."
-	@mv ./results/change_number_antennas_*_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null || true
+	@mv ./results/change_number_antennas_*_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null || \
+	 mv ./results/change_number_antennas_complete_different_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null || true
 
 
 		
