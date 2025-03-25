@@ -23,6 +23,14 @@ import glob
 from pathlib import Path
 
 
+def normalize_path(path):
+    """
+    Normalize a path to remove any redundant separators or up-level references.
+    This will convert paths like './results//RQ1_generalization' to './results/RQ1_generalization'
+    """
+    return os.path.normpath(path)
+
+
 def extract_experiment_info(filename):
     """
     Extract experiment ID, source and target domains from filename
@@ -196,21 +204,21 @@ if __name__ == '__main__':
         activities.append(lab_act)
     activities = np.asarray(activities)
 
-    folder_name = './outputs/'
+    folder_name = './results/'
 
     # Fix path handling to avoid duplication
-    if name_file.startswith('./outputs/') and name_file.endswith('.txt'):
+    if name_file.startswith('./results/') and name_file.endswith('.txt'):
         # Path is already complete, use as is
-        full_path = name_file
-    elif name_file.startswith('./outputs/'):
+        full_path = normalize_path(name_file)
+    elif name_file.startswith('./results/'):
         # Has path but no extension
-        full_path = name_file + '.txt'
+        full_path = normalize_path(name_file + '.txt')
     elif name_file.endswith('.txt'):
         # Has extension but no path
-        full_path = folder_name + name_file
+        full_path = normalize_path(folder_name + name_file)
     else:
         # Neither path nor extension
-        full_path = folder_name + name_file + '.txt'
+        full_path = normalize_path(folder_name + name_file + '.txt')
 
     # Extract experiment information
     experiment_id, source_domains, target_domains, component_modified = extract_experiment_info(full_path)
@@ -267,10 +275,14 @@ if __name__ == '__main__':
     # performance assessment by changing the number of monitor antennas
     # Fix the second file path handling as well
     second_file_base = 'change_number_antennas_' + os.path.basename(name_file.replace('.txt', ''))
-    if second_file_base.startswith('./outputs/'):
-        second_file = second_file_base + '.txt'
+    if second_file_base.startswith('./results/') and second_file_base.endswith('.txt'):
+        second_file = normalize_path(second_file_base)
+    elif second_file_base.startswith('./results/'):
+        second_file = normalize_path(second_file_base + '.txt')
+    elif second_file_base.endswith('.txt'):
+        second_file = normalize_path(folder_name + second_file_base)
     else:
-        second_file = folder_name + second_file_base + '.txt'
+        second_file = normalize_path(folder_name + second_file_base + '.txt')
     
     try:    
         with open(second_file, "rb") as fp:  # Pickling

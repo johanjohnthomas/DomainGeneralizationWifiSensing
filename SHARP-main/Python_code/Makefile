@@ -32,7 +32,7 @@ RQ_NUMBER = $(shell \
     else \
         echo "RQ1_generalization/generalization_gap/$(MODEL_NAME)"; \
     fi)
-RESULTS_PATH = $(RESULTS_DIR)/$(RQ_NUMBER)/
+RESULTS_PATH = $(RESULTS_DIR)$(RQ_NUMBER)/
 EXPERIMENT_TYPE := $(shell echo "$(RQ_NUMBER)" | awk -F/ '{print $$2}')
 RQ := $(shell echo "$(RQ_NUMBER)" | awk -F_ '{print $$1}')
 
