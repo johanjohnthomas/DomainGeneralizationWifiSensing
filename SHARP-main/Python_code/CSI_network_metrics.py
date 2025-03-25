@@ -103,21 +103,73 @@ def get_train_accuracy(experiment_id):
     """
     try:
         # Extract the base experiment ID from the full ID
-        # For example, from "source1_E_W_R_J_L_S_C_G_AR6a" get "source1"
         base_experiment_id = experiment_id
-        if '_E_W_R_J_L_S_C_G' in experiment_id:
-            base_experiment_id = experiment_id.split('_E_W_R_J_L_S_C_G')[0]
-        elif experiment_id.startswith('no_'):
-            base_experiment_id = experiment_id
+        
+        # Domain types that might appear in experiment IDs
+        domain_types = ['bedroom', 'living', 'kitchen', 'lab', 'office', 'semi']
+        
+        # Extract activity string and base experiment ID more dynamically
+        parts = experiment_id.split('_')
+        domain_prefix_parts = []
+        activity_parts = []
+        domain_suffix_parts = []
+        
+        # Categorize parts of the experiment_id
+        for part in parts:
+            # Domain prefixes (like "no_" or "source1")
+            if part == 'no' or part.startswith('source'):
+                domain_prefix_parts.append(part)
+            # Domain types
+            elif part in domain_types:
+                domain_prefix_parts.append(part)
+            # Target domains (starting with AR)
+            elif part.startswith('AR'):
+                domain_suffix_parts.append(part)
+            # Activities (usually single letters)
+            elif len(part) == 1 and part.isalpha():
+                activity_parts.append(part)
+            # Handle any other parts based on context
+            else:
+                # If we already found activities and this is at the end, it's likely a domain suffix
+                if activity_parts and not domain_suffix_parts:
+                    domain_suffix_parts.append(part)
+                else:
+                    # Otherwise assume it's part of the domain prefix
+                    domain_prefix_parts.append(part)
+        
+        # Reconstruct IDs
+        domain_prefix = '_'.join(domain_prefix_parts)
+        clean_activity_str = '_'.join(activity_parts)
+        clean_experiment_id = f"{domain_prefix}_{clean_activity_str}" if domain_prefix else clean_activity_str
+        
+        # Special case for "no_" experiments (leave-one-out)
+        if experiment_id.startswith('no_'):
+            base_experiment_id = clean_experiment_id
+            # If it has a target domain, take everything before it
+            if '_AR' in experiment_id:
+                base_experiment_id = experiment_id.split('_AR')[0]
+                
+        # Special case for source scaling experiments
+        elif any(experiment_id.startswith(f"source{i}") for i in range(1, 10)):
+            # Extract source number
+            source_part = next((p for p in parts if p.startswith("source")), "")
+            if source_part and clean_activity_str:
+                base_experiment_id = f"{source_part}_{clean_activity_str}"
         
         print(f"Looking for history file with base experiment ID: {base_experiment_id}")
+        print(f"Also checking for cleaned experiment ID: {clean_experiment_id}")
+        print(f"Clean activity string: {clean_activity_str}")
         
         # Check common locations for history files with correct pattern
         search_paths = [
             f"./models/{base_experiment_id}_history.pkl",                 # Relative path from script execution
             f"./SHARP-main/Python_code/models/{base_experiment_id}_history.pkl",  # From project root
             f"../models/{base_experiment_id}_history.pkl",                # Up one level
-            f"models/{base_experiment_id}_history.pkl"                    # Direct models folder
+            f"models/{base_experiment_id}_history.pkl",                   # Direct models folder
+            f"./models/{clean_experiment_id}_history.pkl",                # With cleaned ID
+            f"./SHARP-main/Python_code/models/{clean_experiment_id}_history.pkl",  # From project root with cleaned ID
+            f"../models/{clean_experiment_id}_history.pkl",               # Up one level with cleaned ID
+            f"models/{clean_experiment_id}_history.pkl"                   # Direct models folder with cleaned ID
         ]
         
         # First try exact match with experiment_id
@@ -146,6 +198,12 @@ def get_train_accuracy(experiment_id):
             if os.path.exists(search_dir):
                 # Look for files matching the pattern
                 history_files = glob.glob(f"{search_dir}*{base_experiment_id}*_history.pkl")
+                if not history_files:
+                    # Try with cleaned ID if base ID search failed
+                    history_files = glob.glob(f"{search_dir}*{clean_experiment_id}*_history.pkl")
+                if not history_files and clean_activity_str:
+                    # If still not found, try with just the clean activity string
+                    history_files = glob.glob(f"{search_dir}*_{clean_activity_str}_history.pkl")
                 if history_files:
                     print(f"Found history file using glob: {history_files[0]}")
                     with open(history_files[0], "rb") as fp:

@@ -190,7 +190,10 @@ if __name__ == '__main__':
                             callbacks=[callback_save, callback_stop])
 
     # Save training history
-    history_file = name_base + '_' + activity_str + '_history.pkl'
+    base_name = os.path.basename(name_base)  # Extract without path
+    clean_activity_str = '_'.join([act for act in activity_str.split('_') if not act.startswith('AR')])
+    history_file = f"{base_name}_{clean_activity_str}_history.pkl"
+    os.makedirs('./models', exist_ok=True)  # Create models directory if it doesn't exist
     with open(f"./models/{history_file}", "wb") as fp:
         pickle.dump(results.history, fp)
 

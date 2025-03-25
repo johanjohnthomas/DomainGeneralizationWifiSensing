@@ -223,14 +223,67 @@ test:
 # New comprehensive target - dynamically chained workflow
 run_complete:
 	@echo "===== Starting complete workflow for MODEL_NAME=$(MODEL_NAME) ====="
-	@echo "1. Training model..."
-	@$(MAKE) train
-	@echo "2. Testing model..."
-	@$(MAKE) test
-	@echo "3. Calculating metrics..."
+	@echo "0. Determining common activities between training and test directories..."
+	
+	@# Step 1: Extract activities from training directories
+	@echo "Extracting activities from training directories: $(TRAIN_DOMAINS)"
+	@(for d in $(TRAIN_DOMAINS); do \
+		find $(DOPPLER_DIR)$$d -name '*_*_stream_*.txt' -exec basename {} \; | \
+		cut -d '_' -f 2 | cut -c1; \
+	done) | sort -u > train_activities.txt
+	
+	@# Step 2: Extract activities from test directories
+	@echo "Extracting activities from test directories: $(TEST_DOMAINS)"
+	@(for d in $(TEST_DOMAINS); do \
+		find $(DOPPLER_DIR)$$d -name '*_*_stream_*.txt' -exec basename {} \; | \
+		cut -d '_' -f 2 | cut -c1; \
+	done) | sort -u > test_activities.txt
+	
+	@# Step 3: Compute intersection of activities
+	@echo "Computing intersection of activities..."
+	@comm -12 train_activities.txt test_activities.txt > common_activities.txt
+	@# Convert to comma-separated list
+	@cat common_activities.txt | tr '\n' ',' | sed 's/,$$//' > common_activities.csv
+	@$(eval ACTIVITIES := $(shell cat common_activities.csv))
+	@echo "Common activities: $(ACTIVITIES)"
+	@if [ -z "$(ACTIVITIES)" ]; then \
+		echo "Error: No common activities found between training and test directories."; \
+		exit 1; \
+	fi
+	
+	@# Step 4: Create datasets using the common activities
+	@echo "1. Creating datasets with activities: $(ACTIVITIES)"
+	@python CSI_doppler_create_dataset_train.py \
+		"$(DOPPLER_DIR)" \
+		"$(TRAIN_DOMAINS)" \
+		$(SAMPLE_LENGTH) \
+		$(SLIDING) \
+		$(WINDOW_LENGTH) \
+		$(STRIDE) \
+		"$(ACTIVITIES)" \
+		$(NUM_ANTENNAS)
+	@python CSI_doppler_create_dataset_test.py \
+		"$(DOPPLER_DIR)" \
+		"$(TEST_DOMAINS)" \
+		$(SAMPLE_LENGTH) \
+		$(SLIDING) \
+		$(WINDOW_LENGTH) \
+		$(STRIDE) \
+		"$(ACTIVITIES)" \
+		$(NUM_ANTENNAS)
+	
+	@echo "2. Training model with activities: $(ACTIVITIES)..."
+	@$(MAKE) train ACTIVITIES="$(ACTIVITIES)"
+	
+	@echo "3. Testing model with activities: $(ACTIVITIES)..."
+	@$(MAKE) test ACTIVITIES="$(ACTIVITIES)"
+	
+	@echo "4. Calculating metrics..."
 	@$(MAKE) model_metrics
-	@echo "4. Generating plots..."
+	
+	@echo "5. Generating plots..."
 	@$(MAKE) model_plots
+	
 	@echo "===== Complete workflow finished successfully for MODEL_NAME=$(MODEL_NAME) ====="
 
 # Per-model metrics calculation
