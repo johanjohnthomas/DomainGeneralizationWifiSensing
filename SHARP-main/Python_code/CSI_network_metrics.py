@@ -42,64 +42,78 @@ def extract_experiment_info(filename):
     target_domains = "unknown"
     component_modified = "none"
     
-    # Extract model name (used as experiment_id)
-    # First, check specifically for "no_" leave-one-out experiments
-    model_match = re.search(r'complete_different_(no_[a-zA-Z]+)_', filename)
-    if model_match:
-        experiment_id = model_match.group(1)
-    else:
-        # If not a leave-one-out experiment, use the original pattern but make it less greedy
-        model_match = re.search(r'complete_different_(.*?)_[EJLRWSCG]', filename)
+    # Check for command-line environment variables first - highest priority
+    # These would be set by the Makefile when using custom commands like test_training
+    if os.environ.get('TRAIN_DOMAINS'):
+        source_domains = os.environ.get('TRAIN_DOMAINS')
+        print(f"Using environment variable for source domains: {source_domains}")
+    
+    if os.environ.get('TEST_DOMAINS'):
+        target_domains = os.environ.get('TEST_DOMAINS')
+        print(f"Using environment variable for target domains: {target_domains}")
+    
+    # If environment variables aren't set, try to extract from filename
+    if source_domains == "unknown" or target_domains == "unknown":
+        # Extract model name (used as experiment_id)
+        # First, check specifically for "no_" leave-one-out experiments
+        model_match = re.search(r'complete_different_(no_[a-zA-Z]+)_', filename)
         if model_match:
             experiment_id = model_match.group(1)
-    
-    # Check for ablation metadata file
-    model_base = os.path.splitext(filename)[0]
-    ablation_metadata_file = model_base + '_ablation_metadata.pkl'
-    if os.path.exists(ablation_metadata_file):
-        try:
-            with open(ablation_metadata_file, 'rb') as f:
-                ablation_metadata = pickle.load(f)
-                if ablation_metadata.get("no_phase_sanitization", False):
-                    component_modified = "phase_sanitization"
-                elif ablation_metadata.get("no_antenna_randomization", False):
-                    component_modified = "antenna_randomization"
-        except Exception as e:
-            print(f"Error reading ablation metadata: {e}")
-    
-    # If no metadata file exists, check for component modifications in the name
-    if component_modified == "none":
-        if "no_phase" in experiment_id:
-            component_modified = "phase_sanitization"
-        elif "no_antenna" in experiment_id:
-            component_modified = "antenna_randomization"
-    
-    # Extract target domain for leave-one-out experiments
-    if experiment_id.startswith("no_"):
-        domain_type = experiment_id.replace("no_", "")
-        target_domains = domain_type
+        else:
+            # If not a leave-one-out experiment, use the original pattern but make it less greedy
+            model_match = re.search(r'complete_different_(.*?)_[EJLRWSCG]', filename)
+            if model_match:
+                experiment_id = model_match.group(1)
         
-        # Set source domains based on what's left out
-        all_domains = ["bedroom", "living", "kitchen", "lab", "office", "semi"]
-        source_domains = ",".join([d for d in all_domains if d != domain_type])
-    
-    # Extract source domain count for scaling experiments
-    elif experiment_id.startswith("source"):
-        num_sources = experiment_id.replace("source", "")
-        if num_sources == "1":
-            source_domains = "bedroom_split1"
-            target_domains = "bedroom_split2"
-        elif num_sources == "2":
-            source_domains = "bedroom_split1,living_split1"
-            target_domains = "bedroom_split2,living_split2"
-        elif num_sources == "3":
-            source_domains = "bedroom_split1,living_split1,office_split1"
-            target_domains = "bedroom_split2,living_split2,office_split2"
-        elif num_sources == "4":
-            source_domains = "bedroom_split1,living_split1,office_split1,semi_split1"
-            target_domains = "bedroom_split2,living_split2,office_split2,semi_split2"
+        # Check for ablation metadata file
+        model_base = os.path.splitext(filename)[0]
+        ablation_metadata_file = model_base + '_ablation_metadata.pkl'
+        if os.path.exists(ablation_metadata_file):
+            try:
+                with open(ablation_metadata_file, 'rb') as f:
+                    ablation_metadata = pickle.load(f)
+                    if ablation_metadata.get("no_phase_sanitization", False):
+                        component_modified = "phase_sanitization"
+                    elif ablation_metadata.get("no_antenna_randomization", False):
+                        component_modified = "antenna_randomization"
+            except Exception as e:
+                print(f"Error reading ablation metadata: {e}")
+        
+        # If no metadata file exists, check for component modifications in the name
+        if component_modified == "none":
+            if "no_phase" in experiment_id:
+                component_modified = "phase_sanitization"
+            elif "no_antenna" in experiment_id:
+                component_modified = "antenna_randomization"
+        
+        # Extract target domain for leave-one-out experiments if not already set by environment variables
+        if source_domains == "unknown" and target_domains == "unknown" and experiment_id.startswith("no_"):
+            domain_type = experiment_id.replace("no_", "")
+            target_domains = domain_type
+            
+            # Set source domains based on what's left out
+            all_domains = ["bedroom", "living", "kitchen", "lab", "office", "semi"]
+            source_domains = ",".join([d for d in all_domains if d != domain_type])
+        
+        # Extract source domain count for scaling experiments
+        elif source_domains == "unknown" and target_domains == "unknown" and experiment_id.startswith("source"):
+            num_sources = experiment_id.replace("source", "")
+            if num_sources == "1":
+                source_domains = "bedroom_split1"
+                target_domains = "bedroom_split2"
+            elif num_sources == "2":
+                source_domains = "bedroom_split1,living_split1"
+                target_domains = "bedroom_split2,living_split2"
+            elif num_sources == "3":
+                source_domains = "bedroom_split1,living_split1,office_split1"
+                target_domains = "bedroom_split2,living_split2,office_split2"
+            elif num_sources == "4":
+                source_domains = "bedroom_split1,living_split1,office_split1,semi_split1"
+                target_domains = "bedroom_split2,living_split2,office_split2,semi_split2"
     
     print(f"Extracted experiment_id: {experiment_id} from filename: {os.path.basename(filename)}")
+    print(f"Source domains: {source_domains}")
+    print(f"Target domains: {target_domains}")
     return experiment_id, source_domains, target_domains, component_modified
 
 

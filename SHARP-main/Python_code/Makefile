@@ -145,7 +145,13 @@ rq1: leave_one_out
 rq4: varying_sources
 
 test_training:
-	make run_complete TEST_DOMAINS="$(KITCHEN)" TRAIN_DOMAINS="$(LABORATORY)" MODEL_NAME=no_bedroom
+	make run_complete TEST_DOMAINS="$(LABORATORY)" TRAIN_DOMAINS="$(KITCHEN)" MODEL_NAME=no_bedroom
+	@# Ensure environment variables are exported for metrics calculation
+	@export TRAIN_DOMAINS="$(KITCHEN)" && \
+	export TEST_DOMAINS="$(LABORATORY)" && \
+	echo "Running metrics calculation with explicitly set domains..." && \
+	find $(RESULTS_PATH)metrics -name 'complete_different_*.txt' -exec bash -c 'TRAIN_DOMAINS="$(KITCHEN)" TEST_DOMAINS="$(LABORATORY)" python CSI_network_metrics.py {} "$(ACTIVITIES)"' \;
+	@echo "Metrics recalculated with correct domain values"
 
 # Leave-One-Domain-Out Evaluation (RQ1)
 leave_one_out: leave_one_bedroom leave_one_living leave_one_kitchen leave_one_lab leave_one_office leave_one_semi
@@ -264,6 +270,58 @@ clean_all: clean_run_artifacts
 	@echo "Removing plots..."
 	@rm -rf ./plots/*
 	@echo "All artifacts cleaned."
+
+# Add a target to regenerate metrics with correct domain values
+regenerate_metrics:
+	@echo "Regenerating metrics with correct domain values..."
+	@echo "Source domains: $(TRAIN_DOMAINS)"
+	@echo "Target domains: $(TEST_DOMAINS)"
+	@if [ -z "$(TRAIN_DOMAINS)" ] || [ -z "$(TEST_DOMAINS)" ]; then \
+		echo "Error: TRAIN_DOMAINS and TEST_DOMAINS must be specified."; \
+		echo "Usage: make regenerate_metrics TRAIN_DOMAINS=domain1,domain2 TEST_DOMAINS=domain3,domain4 MODEL_NAME=model_name"; \
+		exit 1; \
+	fi
+	@if [ -z "$(MODEL_NAME)" ]; then \
+		echo "Error: MODEL_NAME must be specified."; \
+		echo "Usage: make regenerate_metrics TRAIN_DOMAINS=domain1,domain2 TEST_DOMAINS=domain3,domain4 MODEL_NAME=model_name"; \
+		exit 1; \
+	fi
+	@if [ -z "$(ACTIVITIES)" ]; then \
+		ACTIVITIES="E,W,R,J,L,S,C,G"; \
+		echo "Using default activities: $$ACTIVITIES"; \
+	else \
+		ACTIVITIES="$(ACTIVITIES)"; \
+		echo "Using specified activities: $$ACTIVITIES"; \
+	fi
+	@# Remove existing metrics file if it exists
+	@if [ -f "$(RESULTS_DIR)experiment_metrics.csv" ]; then \
+		rm "$(RESULTS_DIR)experiment_metrics.csv"; \
+		echo "Removed existing experiment_metrics.csv file"; \
+	fi
+	@# Use export to ensure environment variables are passed to child processes
+	@export TRAIN_DOMAINS="$(TRAIN_DOMAINS)" && \
+	export TEST_DOMAINS="$(TEST_DOMAINS)" && \
+	echo "Looking for metrics files in $(RESULTS_DIR)$(RQ_NUMBER)/metrics/..." && \
+	METRICS_FILE=$$(find $(RESULTS_DIR)$(RQ_NUMBER)/metrics/ -name 'complete_different_*.txt' | head -n 1) && \
+	if [ -n "$$METRICS_FILE" ]; then \
+		echo "Processing metrics file: $$METRICS_FILE" && \
+		TRAIN_DOMAINS="$(TRAIN_DOMAINS)" TEST_DOMAINS="$(TEST_DOMAINS)" python CSI_network_metrics.py "$$METRICS_FILE" "$$ACTIVITIES"; \
+	else \
+		echo "No metrics files found in $(RESULTS_DIR)$(RQ_NUMBER)/metrics/. Trying results directory..." && \
+		METRICS_FILE=$$(find $(RESULTS_DIR) -name 'complete_different_*.txt' | head -n 1) && \
+		if [ -n "$$METRICS_FILE" ]; then \
+			echo "Processing metrics file: $$METRICS_FILE" && \
+			TRAIN_DOMAINS="$(TRAIN_DOMAINS)" TEST_DOMAINS="$(TEST_DOMAINS)" python CSI_network_metrics.py "$$METRICS_FILE" "$$ACTIVITIES"; \
+		else \
+			echo "No metrics files found. Please run the experiment first."; \
+			exit 1; \
+		fi; \
+	fi
+	@echo "Metrics regenerated with correct domain values"
+	@if [ -f "$(RESULTS_DIR)experiment_metrics.csv" ]; then \
+		echo "New experiment_metrics.csv:"; \
+		cat "$(RESULTS_DIR)experiment_metrics.csv"; \
+	fi
 
 # Modify the run_complete target to call clean_run_artifacts at the beginning
 run_complete: clean_run_artifacts
