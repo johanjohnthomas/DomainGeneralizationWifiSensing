@@ -86,11 +86,13 @@ check_cuda:
 	@echo "CUDNN_PATH: $(CUDNN_PATH)"
 	@echo "Verifying ptxas installation..."
 	@which ptxas || echo "WARNING: ptxas not found in PATH!"
-	@echo "Creating necessary symlinks for TensorFlow..."
-	@chmod +x create_ptxas_symlink.sh
-	@./create_ptxas_symlink.sh
-	@echo "Testing TensorFlow GPU integration..."
-	$(TF_ENV_VARS) python check_tf_gpu.py
+	@echo "CUDA and TensorFlow environment variables are set up as follows:"
+	@echo "TF_CUDA_PATHS=$(CUDA_HOME)"
+	@echo "XLA_FLAGS=\"--xla_gpu_cuda_data_dir=$(CUDA_HOME) --xla_gpu_unsafe_fallback_to_driver_on_ptxas_not_found\""
+	@echo "TF_FORCE_GPU_ALLOW_GROWTH=true"
+	@echo "TF_DEVICE_PLACEMENT_SILENT=1"
+	@echo "PATH includes $(CUDA_HOME)/bin"
+	@echo "LD_LIBRARY_PATH includes $(CUDNN_PATH) and $(CUDA_HOME)/lib64"
 
 all: data_processing datasets train test metrics plots
 

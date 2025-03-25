@@ -8,7 +8,11 @@ import argparse
 import numpy as np
 import pickle
 import os
+import re
 from os import listdir
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
 from plots_utility import plt_fft_doppler_activities, plt_fft_doppler_activities_compact, \
     plt_fft_doppler_activity_single, plt_fft_doppler_activities_compact_2
 
@@ -64,6 +68,30 @@ if __name__ == '__main__':
         print(f"Error: Directory {exp_dir} does not exist")
         exit(1)
 
+    # First, let's scan for all available activities in the directory
+    available_activities = set()
+    
+    try:
+        all_files = listdir(exp_dir)
+        # Check subdirectories (which might contain activity data)
+        subdirs = [d for d in all_files if os.path.isdir(os.path.join(exp_dir, d))]
+        
+        # Look for activity subdirectories (format: AR6a_J1, AR6a_W2, etc.)
+        activity_pattern = re.compile(r'{}_(.*?)(?:/|$)'.format(args.sub_dir))
+        for subdir in subdirs:
+            match = activity_pattern.match(subdir)
+            if match:
+                act_with_num = match.group(1)
+                # Extract the base letter (activity type)
+                base_activity = act_with_num[0]
+                available_activities.add(base_activity)
+                print(f"Found activity directory: {subdir} - Base activity: {base_activity}")
+    except Exception as e:
+        print(f"Error scanning activities in directory {exp_dir}: {e}")
+        exit(1)
+    
+    print(f"Available base activities in this directory: {', '.join(sorted(available_activities))}")
+
     traces_activities = []
     for ilab in range(len(csi_label_dict)):
         names = []
@@ -75,14 +103,43 @@ if __name__ == '__main__':
             
         activity = csi_label_dict[ilab]
         print(f"Processing activity: {activity}")
+        
+        # Skip this activity if its base letter is not found in available_activities
+        if activity not in available_activities:
+            print(f"Warning: Activity {activity} not available in this domain, skipping")
+            traces_activities.append([])
+            continue
 
-        # Look for files with activity name in them
+        # Look for files with activity name in them, including numbered variations
         start_l = 4  # Position in filename where activity label starts
-        end_l = start_l + len(activity)
+        
+        # First, find all subdirectories for this activity
+        activity_dirs = []
+        for subdir in all_files:
+            if os.path.isdir(os.path.join(exp_dir, subdir)) and subdir.startswith(f"{args.sub_dir}_{activity}"):
+                activity_dirs.append(subdir)
+        
+        # Check each activity directory
+        for activity_dir in activity_dirs:
+            dir_path = os.path.join(exp_dir, activity_dir)
+            try:
+                dir_files = listdir(dir_path)
+                for file in dir_files:
+                    if file.endswith('.txt') and not file.endswith('.txt.p'):
+                        names.append(os.path.join(activity_dir, file[:-4]))
+            except Exception as e:
+                print(f"Error listing directory {dir_path}: {e}")
+                continue
+        
+        # Also check for direct files in the main directory
         for i in range(len(all_files)):
             try:
-                if all_files[i][start_l:end_l] == activity and all_files[i][-5] != 'p':
-                    names.append(all_files[i][:-4])
+                # Check if file starts with base activity letter at position 4
+                if len(all_files[i]) > 4 and all_files[i][start_l] == activity and all_files[i][-5] != 'p':
+                    # Verify it's an activity file (might have numbers after the letter)
+                    next_char = all_files[i][start_l + 1] if len(all_files[i]) > start_l + 1 else ""
+                    if next_char.isdigit() or next_char == "_" or next_char == ".":
+                        names.append(all_files[i][:-4])
             except IndexError:
                 # Filename too short, skip
                 continue
@@ -94,10 +151,13 @@ if __name__ == '__main__':
             # Add an empty list so indexes still align
             traces_activities.append([])
             continue
+        else:
+            print(f"Found {len(names)} files for activity {activity}: {', '.join(os.path.basename(n) for n in names[:3])}" + 
+                  (f"... and {len(names)-3} more" if len(names) > 3 else ""))
 
         stft_antennas = []
         for name in names:
-            name_file = exp_dir + name + '.txt'
+            name_file = exp_dir + name + '.txt' if not name.startswith(args.sub_dir) else os.path.join(exp_dir, name + '.txt')
             print(f"Processing file: {name_file}")
 
             try:
@@ -118,6 +178,7 @@ if __name__ == '__main__':
 
         if stft_antennas:
             traces_activities.append(stft_antennas)
+            print(f"Successfully processed {len(stft_antennas)} data files for activity {activity}")
         else:
             print(f"Warning: No valid data processed for activity {activity}")
             # Add an empty list to maintain index alignment
@@ -163,9 +224,9 @@ if __name__ == '__main__':
 
     try:
         # Check if we have jumping activity data (5th activity)
-        if len(traces_activities) >= 5 and traces_activities[4]:
+        if len(traces_activities) >= 5 and len(traces_activities[4]) > 0:
             # Try antenna 1 for single activity plot
-            antenna = min(1, len(traces_activities[4][0])-1) if traces_activities[4] and traces_activities[4][0] else 0
+            antenna = min(1, len(traces_activities[4][0])-1) if traces_activities[4] and len(traces_activities[4][0]) > 0 else 0
             name_p = './plots/csi_doppler_single_act_' + args.sub_dir + '.pdf'
             plt_fft_doppler_activity_single(traces_activities[4], antenna, sliding, delta_v, name_p)
             print(f"Generated plot: {name_p}")
@@ -173,3 +234,4 @@ if __name__ == '__main__':
         print(f"Error generating single activity Doppler plot: {e}")
 
     print("Doppler plotting completed successfully.")
+    plt.close('all')  # Close all remaining figure windows
