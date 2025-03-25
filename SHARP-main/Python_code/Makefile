@@ -21,6 +21,9 @@ TF_ENV_VARS = CUDA_HOME=$(CUDA_HOME) \
               LD_LIBRARY_PATH=$(CUDNN_PATH):$(CUDA_HOME)/lib64:$$LD_LIBRARY_PATH
 
 # Add this after existing variable definitions
+# Set default model name (if not provided by user)
+MODEL_NAME ?= custom_model
+
 RQ_NUMBER = $(shell \
     if echo "$(MODEL_NAME)" | grep -qE '^no_(bedroom|kitchen|lab|living|office|semi)$$'; then \
         echo "RQ1_generalization/leave_one_out/$(MODEL_NAME)"; \
@@ -145,13 +148,29 @@ rq1: leave_one_out
 rq4: varying_sources
 
 test_training:
-	make run_complete TEST_DOMAINS="$(LABORATORY)" TRAIN_DOMAINS="$(KITCHEN)" MODEL_NAME=no_bedroom
-	@# Ensure environment variables are exported for metrics calculation
-	@export TRAIN_DOMAINS="$(KITCHEN)" && \
+	@# First, set MODEL_NAME explicitly so RQ_NUMBER is calculated correctly
+	@MODEL_NAME=no_bedroom && \
+	RQ_NUMBER=$$(if echo "$$MODEL_NAME" | grep -qE '^no_(bedroom|kitchen|lab|living|office|semi)$$'; then \
+		echo "RQ1_generalization/leave_one_out/$$MODEL_NAME"; \
+	elif echo "$$MODEL_NAME" | grep -qE '^source[1-4]$$'; then \
+		num=$$(echo "$$MODEL_NAME" | sed 's/source//'); \
+		echo "RQ4_source_scaling/source_$$num"; \
+	elif echo "$$MODEL_NAME" | grep -qE '^no_(antenna_randomization|phase_sanitization)$$'; then \
+		echo "RQ5_component_analysis/$$MODEL_NAME"; \
+	else \
+		echo "RQ1_generalization/generalization_gap/$$MODEL_NAME"; \
+	fi) && \
+	RESULTS_PATH=$(RESULTS_DIR)$$RQ_NUMBER/ && \
+	echo "Using RESULTS_PATH: $$RESULTS_PATH" && \
+	\
+	make run_complete TEST_DOMAINS="$(LABORATORY)" TRAIN_DOMAINS="$(KITCHEN)" MODEL_NAME=no_bedroom && \
+	\
+	# Ensure environment variables are exported for metrics calculation \
+	export TRAIN_DOMAINS="$(KITCHEN)" && \
 	export TEST_DOMAINS="$(LABORATORY)" && \
 	echo "Running metrics calculation with explicitly set domains..." && \
-	find $(RESULTS_PATH)metrics -name 'complete_different_*.txt' -exec bash -c 'TRAIN_DOMAINS="$(KITCHEN)" TEST_DOMAINS="$(LABORATORY)" python CSI_network_metrics.py {} "$(ACTIVITIES)"' \;
-	@echo "Metrics recalculated with correct domain values"
+	find $$RESULTS_PATH/metrics -name 'complete_different_*.txt' -exec bash -c 'TRAIN_DOMAINS="$(KITCHEN)" TEST_DOMAINS="$(LABORATORY)" python CSI_network_metrics.py {} "$(ACTIVITIES)"' \; && \
+	echo "Metrics recalculated with correct domain values"
 
 # Leave-One-Domain-Out Evaluation (RQ1)
 leave_one_out: leave_one_bedroom leave_one_living leave_one_kitchen leave_one_lab leave_one_office leave_one_semi
@@ -193,8 +212,7 @@ source_4:
 train:
 	$(TF_ENV_VARS) \
 	python CSI_network.py "$(DOPPLER_DIR)" "$(TRAIN_DOMAINS)" \
-	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) $(MODEL_NAME) "$(ACTIVITIES)" \
-	--bandwidth 80
+	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) $(MODEL_NAME) "$(ACTIVITIES)" --bandwidth 80
 
 # Automated Test Target
 test:
@@ -505,7 +523,9 @@ metrics_original:
 		fi; \
 	fi
 	@echo "Step 2: Creating confusion matrix plots..."
-	python -W ignore CSI_network_metrics_plot.py confusion_matrix_baseline || echo "Warning: Error generating confusion matrix plots"
+	@# Use MODEL_NAME if defined, otherwise use custom_model
+	@echo "Using model name: $(MODEL_NAME) for confusion matrix generation"
+	python -W ignore CSI_network_metrics_plot.py confusion_matrix_$(MODEL_NAME) || echo "Warning: Error generating confusion matrix plots"
 	@echo "Step 3: Creating additional performance visualizations..."
 	python -W ignore generate_plots.py || echo "Warning: Error generating additional plots"
 	@echo "Metrics calculation and visualization completed"

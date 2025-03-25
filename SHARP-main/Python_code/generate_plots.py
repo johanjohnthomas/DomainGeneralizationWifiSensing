@@ -35,8 +35,20 @@ def main():
         with open(metrics_file, "rb") as fp:
             conf_matrix_dict = pickle.load(fp)
         
-        # Generate confusion matrix plots
-        activities = np.array(['E', 'W', 'R', 'J', 'L', 'S', 'C', 'G'])
+        # Read activities from common_activities.txt instead of hardcoding
+        try:
+            with open("common_activities.txt", "r") as activity_file:
+                activity_list = [line.strip() for line in activity_file if line.strip()]
+                activities = np.array(activity_list)
+                print(f"Using activities from common_activities.txt: {activities}")
+        except Exception as e:
+            print(f"Warning: Could not read common_activities.txt: {e}")
+            print("Falling back to using activities from the confusion matrix dimensions")
+            # Fallback: determine activities from the confusion matrix dimensions
+            num_activities = conf_matrix_dict['conf_matrix'].shape[0]
+            activities = np.array([chr(65 + i) for i in range(num_activities)])  # Use A, B, C, etc.
+            print(f"Using fallback activities: {activities}")
+        
         conf_matrix = conf_matrix_dict['conf_matrix']
         conf_matrix_max_merge = conf_matrix_dict['conf_matrix_max_merge']
         
