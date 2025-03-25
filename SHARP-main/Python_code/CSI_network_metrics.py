@@ -235,7 +235,11 @@ if __name__ == '__main__':
         conf_matrix_dict = pickle.load(fp)
 
     conf_matrix = conf_matrix_dict['conf_matrix']
-    confusion_matrix_normaliz_row = np.transpose(conf_matrix / np.sum(conf_matrix, axis=1).reshape(-1, 1))
+    # Add a small epsilon to avoid division by zero and handle empty rows safely
+    row_sums = np.sum(conf_matrix, axis=1).reshape(-1, 1)
+    # Replace zeros with ones to avoid division by zero (will result in zeros in the normalized matrix)
+    row_sums = np.where(row_sums == 0, 1, row_sums)
+    confusion_matrix_normaliz_row = np.transpose(conf_matrix / row_sums)
     accuracies = np.diag(confusion_matrix_normaliz_row)
     accuracy = conf_matrix_dict['accuracy_single']
     precision = conf_matrix_dict['precision_single']
@@ -253,8 +257,11 @@ if __name__ == '__main__':
           % (accuracies[0], accuracies[1], accuracies[2], accuracies[3], accuracies[4]))
 
     conf_matrix_max_merge = conf_matrix_dict['conf_matrix_max_merge']
-    conf_matrix_max_merge_normaliz_row = np.transpose(conf_matrix_max_merge /
-                                                      np.sum(conf_matrix_max_merge, axis=1).reshape(-1, 1))
+    # Apply the same safety check for the second matrix
+    row_sums_max_merge = np.sum(conf_matrix_max_merge, axis=1).reshape(-1, 1)
+    # Replace zeros with ones to avoid division by zero
+    row_sums_max_merge = np.where(row_sums_max_merge == 0, 1, row_sums_max_merge)
+    conf_matrix_max_merge_normaliz_row = np.transpose(conf_matrix_max_merge / row_sums_max_merge)
     accuracies_max_merge = np.diag(conf_matrix_max_merge_normaliz_row)
     accuracy_max_merge = conf_matrix_dict['accuracy_max_merge']
     precision_max_merge = conf_matrix_dict['precision_max_merge']
