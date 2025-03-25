@@ -280,16 +280,15 @@ if __name__ == '__main__':
              accuracies_max_merge[4]))
 
     # performance assessment by changing the number of monitor antennas
-    # Fix the second file path handling as well
-    second_file_base = 'change_number_antennas_' + os.path.basename(name_file.replace('.txt', ''))
-    if second_file_base.startswith('./results/') and second_file_base.endswith('.txt'):
-        second_file = normalize_path(second_file_base)
-    elif second_file_base.startswith('./results/'):
-        second_file = normalize_path(second_file_base + '.txt')
-    elif second_file_base.endswith('.txt'):
-        second_file = normalize_path(folder_name + second_file_base)
-    else:
-        second_file = normalize_path(folder_name + second_file_base + '.txt')
+    # Get the directory of the input file to look for the antenna variation file in the same location
+    input_file_dir = os.path.dirname(full_path)
+    
+    # Create the antenna variation filename based on the main metrics file
+    base_name = os.path.basename(name_file.replace('.txt', ''))
+    antenna_file_name = f'change_number_antennas_{base_name}.txt'
+    
+    # Construct the full path to the antenna variation file in the same directory
+    second_file = os.path.join(input_file_dir, antenna_file_name)
     
     try:    
         with open(second_file, "rb") as fp:  # Pickling
@@ -304,7 +303,9 @@ if __name__ == '__main__':
               % (average_fscore_change_num_ant[0], average_fscore_change_num_ant[1], average_fscore_change_num_ant[2],
                  average_fscore_change_num_ant[3]))
     except Exception as e:
-        print(f"Warning: Could not open antenna variation file: {e}")
+        print(f"Warning: Could not open antenna variation file: {second_file}")
+        print(f"Error details: {e}")
+        print("Antenna variation metrics will not be available for this experiment.")
 
     # Get source domain (training) accuracy
     train_acc = args.train_acc
