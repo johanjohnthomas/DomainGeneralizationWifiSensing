@@ -220,71 +220,159 @@ test:
 		--rq $(RQ) \
 		--path $(RESULTS_PATH)meta.json
 
-# New comprehensive target - dynamically chained workflow
-run_complete:
+# Add this new target before run_complete
+clean_run_artifacts:
+	@echo "Cleaning up artifacts from previous runs..."
+	@rm -f train_activities.txt test_activities.txt common_activities.txt common_activities.csv
+	@echo "Temporary activity files removed."
+	@echo "Note: To fully clean datasets and models, use 'make clean_datasets' or 'make clean_all'"
+
+# Add a more comprehensive cleanup target
+# clean_datasets:
+# 	@echo "Cleaning up dataset directories for all domains..."
+# 	@for d in $(shell find $(DOPPLER_DIR) -mindepth 1 -maxdepth 1 -type d -exec basename {} \;); do \
+# 		echo "Cleaning datasets for domain: $$d"; \
+# 		rm -rf $(DOPPLER_DIR)$$d/train_antennas_* $(DOPPLER_DIR)$$d/test_antennas_* $(DOPPLER_DIR)$$d/val_antennas_*; \
+# 		rm -f $(DOPPLER_DIR)$$d/files_train_antennas_*.txt $(DOPPLER_DIR)$$d/labels_train_antennas_*.txt $(DOPPLER_DIR)$$d/num_windows_train_antennas_*.txt; \
+# 		rm -f $(DOPPLER_DIR)$$d/files_test_antennas_*.txt $(DOPPLER_DIR)$$d/labels_test_antennas_*.txt $(DOPPLER_DIR)$$d/num_windows_test_antennas_*.txt; \
+# 		rm -f $(DOPPLER_DIR)$$d/files_val_antennas_*.txt $(DOPPLER_DIR)$$d/labels_val_antennas_*.txt $(DOPPLER_DIR)$$d/num_windows_val_antennas_*.txt; \
+# 	done
+# 	@echo "Dataset directories cleaned."
+
+# Add comprehensive cleanup target
+clean_all: clean_run_artifacts
+	@echo "Removing models..."
+	@rm -rf $(MODEL_DIR)*.h5
+	@echo "Removing results..."
+	@rm -rf ./results/*
+	@echo "Removing plots..."
+	@rm -rf ./plots/*
+	@echo "All artifacts cleaned."
+
+# Modify the run_complete target to call clean_run_artifacts at the beginning
+run_complete: clean_run_artifacts
 	@echo "===== Starting complete workflow for MODEL_NAME=$(MODEL_NAME) ====="
 	@echo "0. Determining common activities between training and test directories..."
 	
+	@# Check if directories exist
+	@for d in $(TRAIN_DOMAINS); do \
+		if [ ! -d "$(DOPPLER_DIR)$$d" ]; then \
+			echo "Error: Training directory $(DOPPLER_DIR)$$d does not exist."; \
+			exit 1; \
+		fi; \
+	done
+	@for d in $(TEST_DOMAINS); do \
+		if [ ! -d "$(DOPPLER_DIR)$$d" ]; then \
+			echo "Error: Test directory $(DOPPLER_DIR)$$d does not exist."; \
+			exit 1; \
+		fi; \
+	done
+	
 	@# Step 1: Extract activities from training directories
 	@echo "Extracting activities from training directories: $(TRAIN_DOMAINS)"
+	@echo "Looking for activity directories..."
+	@for d in $(TRAIN_DOMAINS); do \
+		echo "Checking domain: $$d"; \
+		find $(DOPPLER_DIR)$$d -maxdepth 1 -type d -name "$$d"_* | \
+		grep -v "train_antennas\|test_antennas\|val_antennas\|complete_antennas" || echo "No matching directories found"; \
+	done
 	@(for d in $(TRAIN_DOMAINS); do \
-		find $(DOPPLER_DIR)$$d -name '*_*_stream_*.txt' -exec basename {} \; | \
-		cut -d '_' -f 2 | cut -c1; \
+		find $(DOPPLER_DIR)$$d -maxdepth 1 -type d -name "$$d"_* | \
+		grep -v "train_antennas\|test_antennas\|val_antennas\|complete_antennas" | \
+		xargs -I{} basename {} | cut -d '_' -f 2 | cut -c1; \
 	done) | sort -u > train_activities.txt
-	
+	@if [ ! -s train_activities.txt ]; then \
+		echo "Error: No activity directories found in training domains."; \
+		echo "Available directories in training domains:"; \
+		for d in $(TRAIN_DOMAINS); do \
+			echo "Content of $(DOPPLER_DIR)$$d/:"; \
+			ls -la $(DOPPLER_DIR)$$d/; \
+		done; \
+		exit 1; \
+	fi
+	@echo "Found training activities: $$(cat train_activities.txt | tr '\n' ' ')"
+
 	@# Step 2: Extract activities from test directories
 	@echo "Extracting activities from test directories: $(TEST_DOMAINS)"
+	@echo "Looking for activity directories..."
+	@for d in $(TEST_DOMAINS); do \
+		echo "Checking domain: $$d"; \
+		find $(DOPPLER_DIR)$$d -maxdepth 1 -type d -name "$$d"_* | \
+		grep -v "train_antennas\|test_antennas\|val_antennas\|complete_antennas" || echo "No matching directories found"; \
+	done
 	@(for d in $(TEST_DOMAINS); do \
-		find $(DOPPLER_DIR)$$d -name '*_*_stream_*.txt' -exec basename {} \; | \
-		cut -d '_' -f 2 | cut -c1; \
+		find $(DOPPLER_DIR)$$d -maxdepth 1 -type d -name "$$d"_* | \
+		grep -v "train_antennas\|test_antennas\|val_antennas\|complete_antennas" | \
+		xargs -I{} basename {} | cut -d '_' -f 2 | cut -c1; \
 	done) | sort -u > test_activities.txt
+	@if [ ! -s test_activities.txt ]; then \
+		echo "Error: No activity directories found in test domains."; \
+		echo "Available directories in test domains:"; \
+		for d in $(TEST_DOMAINS); do \
+			echo "Content of $(DOPPLER_DIR)$$d/:"; \
+			ls -la $(DOPPLER_DIR)$$d/; \
+		done; \
+		exit 1; \
+	fi
+	@echo "Found test activities: $$(cat test_activities.txt | tr '\n' ' ')"
 	
 	@# Step 3: Compute intersection of activities
 	@echo "Computing intersection of activities..."
-	@comm -12 train_activities.txt test_activities.txt > common_activities.txt
-	@# Convert to comma-separated list
-	@cat common_activities.txt | tr '\n' ',' | sed 's/,$$//' > common_activities.csv
-	@$(eval ACTIVITIES := $(shell cat common_activities.csv))
-	@echo "Common activities: $(ACTIVITIES)"
-	@if [ -z "$(ACTIVITIES)" ]; then \
+	@echo "Training activities: $$(cat train_activities.txt | tr '\n' ' ')"
+	@echo "Test activities: $$(cat test_activities.txt | tr '\n' ' ')"
+	
+	@# Use grep instead of comm for more robust intersection
+	@(for a in $$(cat train_activities.txt); do \
+		if grep -q "^$$a$$" test_activities.txt; then \
+			echo $$a; \
+		fi; \
+	done) > common_activities.txt
+	
+	@echo "Common activities found: $$(cat common_activities.txt | tr '\n' ' ')"
+	
+	@# Check if common_activities.txt has content before proceeding
+	@if [ ! -s common_activities.txt ]; then \
 		echo "Error: No common activities found between training and test directories."; \
+		echo "Training activities: $$(cat train_activities.txt | tr '\n' ' ')"; \
+		echo "Test activities: $$(cat test_activities.txt | tr '\n' ' ')"; \
 		exit 1; \
 	fi
 	
-	@# Step 4: Create datasets using the common activities
-	@echo "1. Creating datasets with activities: $(ACTIVITIES)"
-	@python CSI_doppler_create_dataset_train.py \
+	@# Convert to comma-separated list and directly save to variable
+	@ACTIVITIES="$$(cat common_activities.txt | tr '\n' ',' | sed 's/,$$//')" && \
+	echo "Common activities: $$ACTIVITIES" && \
+	if [ -z "$$ACTIVITIES" ]; then \
+		echo "Error: No common activities found between training and test directories."; \
+		exit 1; \
+	fi && \
+	echo "1. Creating datasets with activities: $$ACTIVITIES" && \
+	python CSI_doppler_create_dataset_train.py \
 		"$(DOPPLER_DIR)" \
 		"$(TRAIN_DOMAINS)" \
 		$(SAMPLE_LENGTH) \
 		$(SLIDING) \
 		$(WINDOW_LENGTH) \
 		$(STRIDE) \
-		"$(ACTIVITIES)" \
-		$(NUM_ANTENNAS)
-	@python CSI_doppler_create_dataset_test.py \
+		"$$ACTIVITIES" \
+		$(NUM_ANTENNAS) && \
+	python CSI_doppler_create_dataset_test.py \
 		"$(DOPPLER_DIR)" \
 		"$(TEST_DOMAINS)" \
 		$(SAMPLE_LENGTH) \
 		$(SLIDING) \
 		$(WINDOW_LENGTH) \
 		$(STRIDE) \
-		"$(ACTIVITIES)" \
-		$(NUM_ANTENNAS)
-	
-	@echo "2. Training model with activities: $(ACTIVITIES)..."
-	@$(MAKE) train ACTIVITIES="$(ACTIVITIES)"
-	
-	@echo "3. Testing model with activities: $(ACTIVITIES)..."
-	@$(MAKE) test ACTIVITIES="$(ACTIVITIES)"
-	
-	@echo "4. Calculating metrics..."
-	@$(MAKE) model_metrics
-	
-	@echo "5. Generating plots..."
-	@$(MAKE) model_plots
-	
-	@echo "===== Complete workflow finished successfully for MODEL_NAME=$(MODEL_NAME) ====="
+		"$$ACTIVITIES" \
+		$(NUM_ANTENNAS) && \
+	echo "2. Training model with activities: $$ACTIVITIES..." && \
+	$(MAKE) train ACTIVITIES="$$ACTIVITIES" && \
+	echo "3. Testing model with activities: $$ACTIVITIES..." && \
+	$(MAKE) test ACTIVITIES="$$ACTIVITIES" && \
+	echo "4. Calculating metrics..." && \
+	$(MAKE) model_metrics ACTIVITIES="$$ACTIVITIES" && \
+	echo "5. Generating plots..." && \
+	$(MAKE) model_plots ACTIVITIES="$$ACTIVITIES" && \
+	echo "===== Complete workflow finished successfully for MODEL_NAME=$(MODEL_NAME) ====="
 
 # Per-model metrics calculation
 model_metrics:
@@ -422,3 +510,8 @@ comparison_plots:
 		echo "Error: Doppler directory not found. Run 'make data_processing' first."; \
 		exit 1; \
 	fi
+
+# Add a target to run a completely clean experiment
+clean_experiment: clean_all
+	@echo "Starting clean experiment with TEST_DOMAINS=$(TEST_DOMAINS) and TRAIN_DOMAINS=$(TRAIN_DOMAINS)..."
+	@$(MAKE) run_complete TEST_DOMAINS="$(TEST_DOMAINS)" TRAIN_DOMAINS="$(TRAIN_DOMAINS)" MODEL_NAME="$(MODEL_NAME)"
