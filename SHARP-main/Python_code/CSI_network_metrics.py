@@ -43,9 +43,15 @@ def extract_experiment_info(filename):
     component_modified = "none"
     
     # Extract model name (used as experiment_id)
-    model_match = re.search(r'complete_different.*?_([a-zA-Z0-9_]+)_band', filename)
+    # First, check specifically for "no_" leave-one-out experiments
+    model_match = re.search(r'complete_different_(no_[a-zA-Z]+)_', filename)
     if model_match:
         experiment_id = model_match.group(1)
+    else:
+        # If not a leave-one-out experiment, use the original pattern but make it less greedy
+        model_match = re.search(r'complete_different_(.*?)_[EJLRWSCG]', filename)
+        if model_match:
+            experiment_id = model_match.group(1)
     
     # Check for ablation metadata file
     model_base = os.path.splitext(filename)[0]
@@ -93,6 +99,7 @@ def extract_experiment_info(filename):
             source_domains = "bedroom_split1,living_split1,office_split1,semi_split1"
             target_domains = "bedroom_split2,living_split2,office_split2,semi_split2"
     
+    print(f"Extracted experiment_id: {experiment_id} from filename: {os.path.basename(filename)}")
     return experiment_id, source_domains, target_domains, component_modified
 
 
