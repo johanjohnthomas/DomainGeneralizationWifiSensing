@@ -241,6 +241,7 @@ train:
 
 # Automated Test Target
 test:
+	@echo "Running test for MODEL_NAME=$(MODEL_NAME) with timestamped results..."
 	$(TF_ENV_VARS) \
 	python CSI_network_test.py "$(DOPPLER_DIR)" "$(TEST_DOMAINS)" \
 	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) $(MODEL_NAME) "$(ACTIVITIES)" \
@@ -267,16 +268,33 @@ test:
 		done; \
 	fi
 	
-	@# Enhanced file matching and logging
+	@# Find and move result files with timestamp pattern
 	@echo "Moving results for MODEL_NAME=$(MODEL_NAME) to $(RESULTS_PATH)metrics/"
-	@# Modified pattern to be more flexible in matching the output files
-	@mv ./results/complete_different_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null || \
-	 mv ./results/complete_different_*_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null || \
-	 echo "Warning: No files found matching either pattern for $(MODEL_NAME). Check output file naming."
-	@mv ./results/change_number_antennas_*_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null || \
-	 mv ./results/change_number_antennas_complete_different_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null || true
-
-
+	@# First look for the new timestamped pattern
+	@if ls ./results/complete_different_$(MODEL_NAME)_*_band_*.txt 1> /dev/null 2>&1; then \
+		echo "Found results with timestamped pattern"; \
+		mv ./results/complete_different_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null; \
+	elif ls ./results/complete_different_*_$(MODEL_NAME)_*_band_*.txt 1> /dev/null 2>&1; then \
+		echo "Found results with alternate timestamped pattern"; \
+		mv ./results/complete_different_*_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null; \
+	else \
+		echo "Warning: No files found matching expected patterns for $(MODEL_NAME)."; \
+		echo "Running a broader search for any metrics files:"; \
+		find ./results -name "complete_different_*_band_*.txt" | grep -i "$(MODEL_NAME)" | sort; \
+		for metrics_file in $$(find ./results -name "complete_different_*_band_*.txt" | grep -i "$(MODEL_NAME)" | sort); do \
+			echo "Moving metrics file: $$metrics_file"; \
+			mv "$$metrics_file" $(RESULTS_PATH)metrics/ 2>/dev/null; \
+		done; \
+	fi
+	
+	@# Also handle the antenna variation files
+	@if ls ./results/change_number_antennas_*_$(MODEL_NAME)_*_band_*.txt 1> /dev/null 2>&1; then \
+		echo "Found antenna variation results"; \
+		mv ./results/change_number_antennas_*_$(MODEL_NAME)_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null; \
+	elif ls ./results/change_number_antennas_*_band_*.txt 1> /dev/null 2>&1; then \
+		echo "Found generic antenna variation results"; \
+		mv ./results/change_number_antennas_*_band_*.txt $(RESULTS_PATH)metrics/ 2>/dev/null; \
+	fi
 		
 	@# Generate metadata with auto-detected parameters
 	@python generate_meta.py \
@@ -284,6 +302,8 @@ test:
 		--type $(EXPERIMENT_TYPE) \
 		--rq $(RQ) \
 		--path $(RESULTS_PATH)meta.json
+	
+	@echo "Test complete - results saved with unique timestamped filenames for this run"
 
 # Add this new target before run_complete
 clean_run_artifacts:
@@ -400,6 +420,31 @@ pre_workflow_cleanup:
 	@# First perform all standard cleanup tasks from artifact_cleanup
 	@make artifact_cleanup
 	
+	@# ======== ADD SPECIFIC CLEANUP FOR METRICS FILES ========
+	@echo "Performing comprehensive metrics file cleanup to prevent result reuse..."
+	@# Clean up experiment_metrics.csv to prevent appending to old results
+	@if [ -f "$(RESULTS_DIR)experiment_metrics.csv" ]; then \
+		echo "  Removing existing experiment_metrics.csv file"; \
+		rm "$(RESULTS_DIR)experiment_metrics.csv"; \
+	fi
+	
+	@# Clean up any existing metrics files with the same model name to prevent reuse
+	@if [ -n "$(MODEL_NAME)" ]; then \
+		echo "  Removing existing metrics files for model: $(MODEL_NAME)"; \
+		find "$(RESULTS_DIR)" -name "complete_different_$(MODEL_NAME)_*.txt" -delete 2>/dev/null || true; \
+		find "$(RESULTS_DIR)" -name "*$(MODEL_NAME)*.txt" -delete 2>/dev/null || true; \
+		echo "  Cleaning metrics in specific RQ directory if it exists"; \
+		if [ -d "$(RESULTS_PATH)metrics" ]; then \
+			find "$(RESULTS_PATH)metrics" -name "complete_different_*.txt" -delete 2>/dev/null || true; \
+			find "$(RESULTS_PATH)metrics" -name "change_number_antennas_*.txt" -delete 2>/dev/null || true; \
+		fi; \
+	fi
+	
+	@# Also completely clean the results directory to prevent any file reuse
+	@echo "  Cleaning temporary results in the main results directory"; \
+	find "./results" -name "complete_different_*.txt" -delete 2>/dev/null || true; \
+	find "./results" -name "change_number_antennas_*.txt" -delete 2>/dev/null || true;
+	
 	@# Additional cache file cleanup that was previously done in the Python scripts
 	@echo "Performing comprehensive cache file cleanup..."
 	@# Clean up model-specific cache files for current MODEL_NAME, including patterns from Python scripts
@@ -424,10 +469,13 @@ pre_workflow_cleanup:
 
 # Modify the run_complete target to run cleanup only at beginning
 run_complete: clean_run_artifacts
-	@echo "===== Starting complete workflow for MODEL_NAME=$(MODEL_NAME) ====="
-	@echo "0. Performing comprehensive cleanup before starting..."
-	@make pre_workflow_cleanup
-	@echo "1. Determining common activities between training and test directories..."
+	@# Generate a unique run ID timestamp for traceability
+	@RUN_ID=$$(date +"%Y%m%d_%H%M%S") && \
+	echo "===== Starting complete workflow for MODEL_NAME=$(MODEL_NAME) with Run ID: $$RUN_ID =====" && \
+	echo "===== RUN_ID: $$RUN_ID - This helps identify this specific execution =====" && \
+	echo "0. Performing comprehensive cleanup before starting..." && \
+	make pre_workflow_cleanup && \
+	echo "1. Determining common activities between training and test directories..."
 	
 	@# Check if directories exist
 	@# Modify to split comma-separated domains
@@ -560,7 +608,8 @@ run_complete: clean_run_artifacts
 # Per-model metrics calculation
 model_metrics:
 	@echo "Calculating metrics for $(MODEL_NAME)..."
-	@find $(RESULTS_PATH)metrics -name 'complete_different_*.txt' -exec python CSI_network_metrics.py {} "$(ACTIVITIES)" \;
+	@# Find all complete_different files with more robust pattern matching to handle timestamps
+	@find $(RESULTS_PATH)metrics -name 'complete_different_*_band_*.txt' -exec python CSI_network_metrics.py {} "$(ACTIVITIES)" \;
 	@echo "Metrics calculated and saved to $(RESULTS_PATH)metrics/"
 
 # Per-model plots generation 
