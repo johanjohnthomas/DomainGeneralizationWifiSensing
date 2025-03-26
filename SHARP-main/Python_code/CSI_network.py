@@ -220,10 +220,60 @@ if __name__ == '__main__':
     # Save training history
     base_name = os.path.basename(name_base)  # Extract without path
     clean_activity_str = '_'.join([act for act in activity_str.split('_') if not act.startswith('AR')])
+    
+    # Create models directories if they don't exist
+    os.makedirs('./models', exist_ok=True)
+    os.makedirs('./SHARP-main/Python_code/models', exist_ok=True)
+    
+    # Get both absolute paths for diagnostic output
+    abs_main_path = os.path.abspath('./models')
+    abs_python_path = os.path.abspath('./SHARP-main/Python_code/models')
+    print(f"Saving history files to both {abs_main_path} and {abs_python_path}")
+    
+    # Save with original naming pattern in both locations
     history_file = f"{base_name}_{clean_activity_str}_history.pkl"
-    os.makedirs('./models', exist_ok=True)  # Create models directory if it doesn't exist
     with open(f"./models/{history_file}", "wb") as fp:
         pickle.dump(results.history, fp)
+    
+    # Only save in Python_code models if it's different from the main path
+    if abs_main_path != abs_python_path:
+        with open(f"./SHARP-main/Python_code/models/{history_file}", "wb") as fp:
+            pickle.dump(results.history, fp)
+    
+    # Also save with an alternative naming pattern (experiment_id_clean_activities)
+    if '_AR' in base_name:
+        # Extract parts before AR domain marker
+        base_without_domain = base_name.split('_AR')[0]
+        alt_history_file = f"{base_without_domain}_{clean_activity_str}_history.pkl"
+        if alt_history_file != history_file:  # Only save if different
+            with open(f"./models/{alt_history_file}", "wb") as fp:
+                pickle.dump(results.history, fp)
+            # Same for Python_code models if different path
+            if abs_main_path != abs_python_path:
+                with open(f"./SHARP-main/Python_code/models/{alt_history_file}", "wb") as fp:
+                    pickle.dump(results.history, fp)
+            print(f"Saved additional history file: {alt_history_file}")
+
+    # Save one more copy with a simplified name for easier retrieval in both locations
+    simple_history_file = f"{clean_activity_str}_history.pkl"
+    with open(f"./models/{simple_history_file}", "wb") as fp:
+        pickle.dump(results.history, fp)
+    # Same for Python_code models if different path  
+    if abs_main_path != abs_python_path:
+        with open(f"./SHARP-main/Python_code/models/{simple_history_file}", "wb") as fp:
+            pickle.dump(results.history, fp)
+    
+    # Save experiment-specific naming pattern (most specific identifier)
+    if 'no_bedroom' in base_name:
+        specific_history_file = f"no_bedroom_{clean_activity_str}_history.pkl"
+        with open(f"./models/{specific_history_file}", "wb") as fp:
+            pickle.dump(results.history, fp)
+        # Same for Python_code models if different path
+        if abs_main_path != abs_python_path:
+            with open(f"./SHARP-main/Python_code/models/{specific_history_file}", "wb") as fp:
+                pickle.dump(results.history, fp)
+    
+    print(f"Saved history files with multiple naming patterns for easier retrieval in both directories")
 
     csi_model.save(name_model)
 

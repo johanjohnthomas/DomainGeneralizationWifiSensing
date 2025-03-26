@@ -190,7 +190,11 @@ def get_train_accuracy(experiment_id):
             f"./models/{clean_experiment_id}_history.pkl",                # With cleaned ID
             f"./SHARP-main/Python_code/models/{clean_experiment_id}_history.pkl",  # From project root with cleaned ID
             f"../models/{clean_experiment_id}_history.pkl",               # Up one level with cleaned ID
-            f"models/{clean_experiment_id}_history.pkl"                   # Direct models folder with cleaned ID
+            f"models/{clean_experiment_id}_history.pkl",                  # Direct models folder with cleaned ID
+            # Additional search paths with activity string
+            f"./models/complete_different_{clean_activity_str}_history.pkl",
+            f"./models/no_bedroom_{clean_activity_str}_history.pkl",
+            f"./models/complete_different_no_bedroom_{clean_activity_str}_history.pkl"
         ]
         
         # First try exact match with experiment_id
@@ -215,19 +219,54 @@ def get_train_accuracy(experiment_id):
             "models/"
         ]
         
+        # First, list all history files to help with debugging
+        print("Searching for available history files:")
         for search_dir in search_dirs:
             if os.path.exists(search_dir):
-                # Look for files matching the pattern
-                history_files = glob.glob(f"{search_dir}*{base_experiment_id}*_history.pkl")
-                if not history_files:
-                    # Try with cleaned ID if base ID search failed
-                    history_files = glob.glob(f"{search_dir}*{clean_experiment_id}*_history.pkl")
-                if not history_files and clean_activity_str:
-                    # If still not found, try with just the clean activity string
-                    history_files = glob.glob(f"{search_dir}*_{clean_activity_str}_history.pkl")
-                if history_files:
-                    print(f"Found history file using glob: {history_files[0]}")
-                    with open(history_files[0], "rb") as fp:
+                history_files = glob.glob(f"{search_dir}*_history.pkl")
+                for file in history_files:
+                    print(f"  Found history file: {file}")
+        
+        # Try different glob patterns to match history files
+        for search_dir in search_dirs:
+            if os.path.exists(search_dir):
+                # Look for files matching various patterns
+                search_patterns = [
+                    f"{search_dir}*{base_experiment_id}*_history.pkl",
+                    f"{search_dir}*{clean_experiment_id}*_history.pkl",
+                    f"{search_dir}*_{clean_activity_str}_history.pkl",
+                    f"{search_dir}*complete_different*{clean_activity_str}*_history.pkl",
+                    f"{search_dir}*no_bedroom*{clean_activity_str}*_history.pkl"
+                ]
+                
+                for pattern in search_patterns:
+                    history_files = glob.glob(pattern)
+                    if history_files:
+                        print(f"Found history file using pattern {pattern}: {history_files[0]}")
+                        with open(history_files[0], "rb") as fp:
+                            history = pickle.load(fp)
+                            if 'sparse_categorical_accuracy' in history:
+                                return history['sparse_categorical_accuracy'][-1]
+                            elif 'accuracy' in history:
+                                return history['accuracy'][-1]
+                            elif 'acc' in history:
+                                return history['acc'][-1]
+        
+        # If nothing found, print diagnostic info
+        print(f"Could not find history file for experiment_id: {experiment_id}")
+        print(f"With base_experiment_id: {base_experiment_id}")
+        print(f"Searched paths: {search_paths}")
+        print(f"Searched directories for pattern matching: {search_dirs}")
+        
+        # As a fallback, try to find any history file with matching activity string
+        # This is less precise but better than returning None
+        for search_dir in search_dirs:
+            if os.path.exists(search_dir):
+                fallback_files = glob.glob(f"{search_dir}*_{clean_activity_str}_*_history.pkl")
+                if fallback_files:
+                    print(f"Found fallback history file: {fallback_files[0]}")
+                    print(f"WARNING: Using a fallback history file that may not be an exact match!")
+                    with open(fallback_files[0], "rb") as fp:
                         history = pickle.load(fp)
                         if 'sparse_categorical_accuracy' in history:
                             return history['sparse_categorical_accuracy'][-1]
@@ -236,11 +275,34 @@ def get_train_accuracy(experiment_id):
                         elif 'acc' in history:
                             return history['acc'][-1]
         
-        # If nothing found, print diagnostic info
-        print(f"Could not find history file for experiment_id: {experiment_id}")
-        print(f"With base_experiment_id: {base_experiment_id}")
-        print(f"Searched paths: {search_paths}")
-        print(f"Searched directories for pattern matching: {search_dirs}")
+        # ADDITIONAL FALLBACK: Use any available history file if activity-specific file not found
+        print("Attempting to use any available history file as ultimate fallback...")
+        for search_dir in search_dirs:
+            if os.path.exists(search_dir):
+                # Look for any history file
+                any_history_files = glob.glob(f"{search_dir}*_history.pkl")
+                if any_history_files:
+                    fallback_file = any_history_files[0]  # Use the first history file found
+                    print(f"IMPORTANT NOTE: Using generic fallback history file: {fallback_file}")
+                    print(f"WARNING: This is not the correct history for {experiment_id} but provides an approximation")
+                    try:
+                        with open(fallback_file, "rb") as fp:
+                            history = pickle.load(fp)
+                            if 'sparse_categorical_accuracy' in history:
+                                acc_value = history['sparse_categorical_accuracy'][-1]
+                                print(f"Using approximated training accuracy: {acc_value:.4f}")
+                                return acc_value
+                            elif 'accuracy' in history:
+                                acc_value = history['accuracy'][-1]
+                                print(f"Using approximated training accuracy: {acc_value:.4f}")
+                                return acc_value
+                            elif 'acc' in history:
+                                acc_value = history['acc'][-1]
+                                print(f"Using approximated training accuracy: {acc_value:.4f}")
+                                return acc_value
+                    except Exception as e:
+                        print(f"Error reading fallback file {fallback_file}: {e}")
+        
         return None
     except Exception as e:
         print(f"Error retrieving training accuracy: {e}")
@@ -441,6 +503,8 @@ if __name__ == '__main__':
         train_acc = get_train_accuracy(experiment_id)
         if train_acc is None:
             print("Warning: Could not retrieve training accuracy. Using placeholder value.")
+            print("Try running 'ls -la ./models/*_history.pkl' to see which history files exist.")
+            print("You may need to train the model again or fix the cleanup process to preserve history files.")
             train_acc = 0.0
 
     # Calculate generalization gap

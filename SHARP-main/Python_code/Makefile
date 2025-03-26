@@ -330,13 +330,15 @@ clean_run_artifacts:
 
 # Add comprehensive cleanup target
 clean_all: artifact_cleanup
-	@echo "Removing models..."
-	@rm -rf $(MODEL_DIR)*.h5
+	@echo "Removing models (except history files)..."
+	@find $(MODEL_DIR) -name "*.h5" -type f -delete 2>/dev/null || true
+	@echo "  Note: Preserving *_history.pkl files for accuracy computation"
+	@echo "  To remove history files as well, use: find ./models -name '*_history.pkl' -delete"
 	@echo "Removing results..."
 	@rm -rf ./results/*
 	@echo "Removing plots..."
 	@rm -rf ./plots/*
-	@echo "All artifacts cleaned."
+	@echo "All artifacts cleaned (except history files)."
 
 # Add a target to regenerate metrics with correct domain values
 regenerate_metrics:
@@ -725,7 +727,10 @@ artifact_cleanup:
 	@echo "4. Removing model history files and temporary weights..."
 	@rm -f *.history.json 2>/dev/null || true
 	@rm -f *.history.csv 2>/dev/null || true
-	@rm -f *.history.pkl 2>/dev/null || true
+	@# DO NOT clean up actual history.pkl files as they're needed for accuracy retrieval
+	@# @rm -f *.history.pkl 2>/dev/null || true
+	@# @rm -f ./models/*_history.pkl 2>/dev/null || true
+	@echo "  Note: Preserving *_history.pkl files for accuracy computation"
 	@rm -f ./weights*.h5 2>/dev/null || true
 	@rm -f ./best_weights*.h5 2>/dev/null || true
 	@rm -f ./temp_model*.h5 2>/dev/null || true
@@ -768,15 +773,17 @@ artifact_cleanup:
 	@echo "Note: If you want to remove all models and results, run 'make clean_all'"
 	@echo "======== Artifact cleanup completed ========"
 
-# Update the clean_all target to reference the new name
+# Update the clean_all target to reference the new name but preserve history files
 clean_all: artifact_cleanup
-	@echo "Removing models..."
-	@rm -rf $(MODEL_DIR)*.h5
+	@echo "Removing models (except history files)..."
+	@find $(MODEL_DIR) -name "*.h5" -type f -delete 2>/dev/null || true
+	@echo "  Note: Preserving *_history.pkl files for accuracy computation"
+	@echo "  To remove history files as well, use: find ./models -name '*_history.pkl' -delete"
 	@echo "Removing results..."
 	@rm -rf ./results/*
 	@echo "Removing plots..."
 	@rm -rf ./plots/*
-	@echo "All artifacts cleaned."
+	@echo "All artifacts cleaned (except history files)."
 
 # Update clean_model to use the new name
 clean_model:
@@ -796,8 +803,13 @@ clean_model:
 	@echo "2. Removing history files..."
 	@rm -f $(MODEL_NAME)*.json 2>/dev/null || true
 	@rm -f $(MODEL_NAME)*.csv 2>/dev/null || true
-	@rm -f $(MODEL_NAME)*.pkl 2>/dev/null || true
+	@# Skip files with "history" in the name to preserve history files
+	@find . -name "$(MODEL_NAME)*.pkl" -not -name "*history*" -delete 2>/dev/null || true
 	@rm -f $(MODEL_NAME)*.pickle 2>/dev/null || true
+	@# Comment these lines to preserve history files for training accuracy
+	@# @rm -f ./models/*$(MODEL_NAME)*_history.pkl 2>/dev/null || true
+	@# @rm -f ./models/*_$(MODEL_NAME)_*_history.pkl 2>/dev/null || true
+	@echo "  Note: Preserving *_history.pkl files for accuracy computation"
 	
 	@# Clean metric files
 	@echo "3. Removing metric files..."
