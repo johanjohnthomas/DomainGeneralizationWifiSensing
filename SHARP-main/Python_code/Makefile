@@ -44,6 +44,15 @@ RQ_NUMBER = $(shell \
         echo "RQ4_source_scaling/source_$$num"; \
     elif echo "$(MODEL_NAME)" | grep -qE '^no_(antenna_randomization|phase_sanitization)$$'; then \
         echo "RQ5_component_analysis/$(MODEL_NAME)"; \
+    elif echo "$(MODEL_NAME)" | grep -qE '^target_split[1-6]$$'; then \
+        num=$$(echo "$(MODEL_NAME)" | sed 's/target_split//'); \
+        echo "RQ6_target_scaling/target_$$num"; \
+    elif echo "$(MODEL_NAME)" | grep -qE '^temporal_same_[1-2]$$'; then \
+        num=$$(echo "$(MODEL_NAME)" | sed 's/temporal_same_//'); \
+        echo "RQ7_temporal_analysis/same_day/$$num"; \
+    elif echo "$(MODEL_NAME)" | grep -qE '^temporal_diff_[1-2]$$'; then \
+        num=$$(echo "$(MODEL_NAME)" | sed 's/temporal_diff_//'); \
+        echo "RQ7_temporal_analysis/different_day/$$num"; \
     else \
         echo "RQ1_generalization/generalization_gap/$(MODEL_NAME)"; \
     fi)
@@ -88,6 +97,18 @@ SEMI_ANECHOIC = AR9a
 # LABORATORY = AR7a
 # OFFICE = AR8a,AR8b
 # SEMI_ANECHOIC = AR9a,AR9b,AR9c
+
+# Domain Splits for Temporal Analysis (RQ7)
+# Defining specific days for each environment
+# Bedroom data collected on day A
+BEDROOM_A = AR1a
+# Bedroom data collected on day B
+BEDROOM_B = AR1b
+# Living room data collected on day A
+LIVING_ROOM_A = AR5a
+# Living room data collected on day B
+LIVING_ROOM_B = AR5b
+
 # Domain Splits for Source Variation Experiments
 SAME_DOMAIN_SCALING_BEDROOM_SPLIT1 = AR1a
 SAME_DOMAIN_SCALING_BEDROOM_SPLIT2 = AR1a,AR1b
@@ -96,6 +117,17 @@ SAME_DOMAIN_SCALING_BEDROOM_SPLIT4 = AR1a,AR1b,AR1c,AR1d
 SAME_DOMAIN_SCALING_BEDROOM_SPLIT5 = AR1a,AR1b,AR1c,AR1d,AR1e
 SAME_DOMAIN_SCALING_BEDROOM_SPLIT6 = AR1a,AR1b,AR1c,AR1d,AR1e,AR2a
 
+# Domain Splits for Target Scaling Experiments
+# Fixed target test set (first two bedroom values)
+TARGET_SCALING_TEST = AR1a,AR1b
+
+# Training splits with fixed living room and progressively adding bedroom samples
+TARGET_SCALING_TRAIN_SPLIT1 = $(LIVING_ROOM)
+TARGET_SCALING_TRAIN_SPLIT2 = $(LIVING_ROOM),AR1c
+TARGET_SCALING_TRAIN_SPLIT3 = $(LIVING_ROOM),AR1c,AR1d
+TARGET_SCALING_TRAIN_SPLIT4 = $(LIVING_ROOM),AR1c,AR1d,AR1e
+TARGET_SCALING_TRAIN_SPLIT5 = $(LIVING_ROOM),AR1c,AR1d,AR1e,AR2a
+TARGET_SCALING_TRAIN_SPLIT6 = $(LIVING_ROOM),AR1c,AR1d,AR1e,AR2a,AR3a
 
 DIFFERENT_DOMAIN_SCALING_SPLIT1 = AR1a
 DIFFERENT_DOMAIN_SCALING_SPLIT2 = AR1a,AR5a
@@ -115,8 +147,9 @@ SEMI_SPLIT2 = AR9b
 AR_SETUPS = $(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)
 #AR_SETUPS = $(KITCHEN),$(LABORATORY)
 .PHONY: all clean data_processing datasets train test metrics plots all_plots \
-        rq1 rq4 leave_one_out varying_sources cross_domain check_cuda \
-        clean_run_artifacts clean_model post_training_cleanup test_training clean_experiment
+        rq1 rq4 rq6 rq7 leave_one_out varying_sources cross_domain check_cuda \
+        clean_run_artifacts clean_model post_training_cleanup test_training clean_experiment \
+        target_scaling_all temporal_analysis_all temporal_same_day temporal_different_day
 
 # Check CUDA configuration and TensorFlow GPU setup
 check_cuda:
@@ -192,6 +225,8 @@ datasets: filter_activities
 # Research Question Entry Points
 rq1: leave_one_out
 rq4: varying_sources
+rq6: target_scaling_all
+rq7: temporal_analysis_all
 
 test_training:
 	@# Perform full cleanup before running
@@ -345,6 +380,50 @@ source_scaling_different_split5_left_lab:
 
 source_scaling_different_split6_left_lab:
 	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT6)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=diff_split6_left_lab
+
+# Target Scaling Evaluation (RQ6)
+# This experiment uses a fixed test set (first two bedroom samples) and progressively adds more bedroom samples to a fixed living room training set
+target_scaling_all: target_scaling_split1 target_scaling_split2 target_scaling_split3 target_scaling_split4 target_scaling_split5 target_scaling_split6
+
+target_scaling_split1:
+	make run_complete TRAIN_DOMAINS="$(TARGET_SCALING_TRAIN_SPLIT1)" TEST_DOMAINS="$(TARGET_SCALING_TEST)" MODEL_NAME=target_split1
+
+target_scaling_split2:
+	make run_complete TRAIN_DOMAINS="$(TARGET_SCALING_TRAIN_SPLIT2)" TEST_DOMAINS="$(TARGET_SCALING_TEST)" MODEL_NAME=target_split2
+
+target_scaling_split3:
+	make run_complete TRAIN_DOMAINS="$(TARGET_SCALING_TRAIN_SPLIT3)" TEST_DOMAINS="$(TARGET_SCALING_TEST)" MODEL_NAME=target_split3
+
+target_scaling_split4:
+	make run_complete TRAIN_DOMAINS="$(TARGET_SCALING_TRAIN_SPLIT4)" TEST_DOMAINS="$(TARGET_SCALING_TEST)" MODEL_NAME=target_split4
+
+target_scaling_split5:
+	make run_complete TRAIN_DOMAINS="$(TARGET_SCALING_TRAIN_SPLIT5)" TEST_DOMAINS="$(TARGET_SCALING_TEST)" MODEL_NAME=target_split5
+
+target_scaling_split6:
+	make run_complete TRAIN_DOMAINS="$(TARGET_SCALING_TRAIN_SPLIT6)" TEST_DOMAINS="$(TARGET_SCALING_TEST)" MODEL_NAME=target_split6
+
+# Temporal Analysis Evaluation (RQ7)
+# This experiment compares performance when training and testing on data collected on same vs. different days
+temporal_analysis_all: temporal_same_day temporal_different_day
+
+# Same day experiments
+temporal_same_day: temporal_same_day_1 temporal_same_day_2
+
+temporal_same_day_1:
+	make run_complete TRAIN_DOMAINS="$(strip $(BEDROOM_A))" TEST_DOMAINS="$(strip $(LIVING_ROOM_A))" MODEL_NAME=temporal_same_1
+
+temporal_same_day_2:
+	make run_complete TRAIN_DOMAINS="$(strip $(BEDROOM_B))" TEST_DOMAINS="$(strip $(LIVING_ROOM_B))" MODEL_NAME=temporal_same_2
+
+# Different day experiments
+temporal_different_day: temporal_different_day_1 temporal_different_day_2
+
+temporal_different_day_1:
+	make run_complete TRAIN_DOMAINS="$(strip $(BEDROOM_B))" TEST_DOMAINS="$(strip $(LIVING_ROOM_A))" MODEL_NAME=temporal_diff_1
+
+temporal_different_day_2:
+	make run_complete TRAIN_DOMAINS="$(strip $(BEDROOM_A))" TEST_DOMAINS="$(strip $(LIVING_ROOM_B))" MODEL_NAME=temporal_diff_2
 
 # Base Targets with Dynamic Domains --------------------------------------------
 train:
