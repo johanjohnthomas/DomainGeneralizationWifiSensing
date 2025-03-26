@@ -189,7 +189,8 @@ if __name__ == '__main__':
                                              stream_ant_test, input_network, batch_size,
                                              shuffle=False, cache_file=name_cache_test)
 
-    csi_model = csi_network_inc_res(input_network, output_shape)
+    # Using the LSTM-CNN model instead of the original model
+    csi_model = csi_network_lstm_cnn(input_network, output_shape)
     csi_model.summary()
 
     optimiz = tf.keras.optimizers.Adam(learning_rate=0.0001)
