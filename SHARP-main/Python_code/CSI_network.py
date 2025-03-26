@@ -11,6 +11,18 @@
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+    CSI Network Training Script
+    --------------------------
+    This script trains a neural network on CSI data for activity recognition.
+    
+    Models available (use --model_type parameter to select):
+    - lstm_cnn: LSTM-CNN hybrid architecture 
+    - inc_res: Inception-ResNet style architecture
+    - gru_cnn: GRU-CNN hybrid architecture (default)
+    
+    Example usage:
+    python CSI_network.py [required args] --model_type lstm_cnn
 """
 
 import argparse
@@ -40,6 +52,8 @@ if __name__ == '__main__':
                                             '(default 80)', default=80, required=False, type=int)
     parser.add_argument('--sub_band', help='Sub_band idx in [1, 2, 3, 4] for 20 MHz, [1, 2] for 40 MHz '
                                            '(default 1)', default=1, required=False, type=int)
+    parser.add_argument('--model_type', help='Type of model to use: lstm_cnn, inc_res, gru_cnn, pytorch_style (default: gru_cnn)',
+                        default='gru_cnn', choices=['lstm_cnn', 'inc_res', 'gru_cnn', 'pytorch_style'], required=False)
     args = parser.parse_args()
 
     gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -189,8 +203,25 @@ if __name__ == '__main__':
                                              stream_ant_test, input_network, batch_size,
                                              shuffle=False, cache_file=name_cache_test)
 
-    # Using the inception-resnet style model instead of the LSTM-CNN model
-    csi_model = csi_network_inc_res(input_network, output_shape)
+    # Model selection based on model_type parameter
+    model_type = args.model_type
+    if model_type == 'lstm_cnn':
+        print(f"Using LSTM-CNN hybrid model")
+        csi_model = csi_network_lstm_cnn(input_network, output_shape)
+    elif model_type == 'inc_res':
+        print(f"Using Inception-ResNet style model")
+        csi_model = csi_network_inc_res(input_network, output_shape)
+    elif model_type == 'gru_cnn':
+        print(f"Using GRU-CNN hybrid model")
+        csi_model = csi_network_gru_cnn(input_network, output_shape)
+    elif model_type == 'pytorch_style':
+        print(f"Using PyTorch-style model")
+        csi_model = csi_network_pytorch_style(input_network, output_shape)
+    else:
+        # Fallback to GRU-CNN if somehow an invalid option slips through
+        print(f"Warning: Unknown model type '{model_type}', falling back to GRU-CNN model")
+        csi_model = csi_network_gru_cnn(input_network, output_shape)
+    
     csi_model.summary()
 
     optimiz = tf.keras.optimizers.Adam(learning_rate=0.0001)

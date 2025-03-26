@@ -104,3 +104,141 @@ def csi_network_lstm_cnn(input_sh, output_sh):
     model = tf.keras.Model(inputs=x_input, outputs=x, name='csi_lstm_cnn_model')
     
     return model
+
+
+def csi_network_gru_cnn(input_sh, output_sh):
+    """
+    GRU-CNN hybrid architecture for CSI data processing based on the PyTorch model.
+    
+    This model applies 2D CNN layers to extract spatial features,
+    followed by GRU layer to capture temporal dependencies.
+    
+    Args:
+        input_sh: Input shape tuple (sample_length, feature_length, channels)
+        output_sh: Number of output classes
+        
+    Returns:
+        Compiled Keras model
+    """
+    # Print input shape for debugging
+    print(f"GRU-CNN model input shape: {input_sh}")
+    
+    # Input layer
+    x_input = tf.keras.Input(input_sh)
+    
+    # First, we'll treat the sample_length as our time dimension
+    # and process each time step through a series of convolutions
+    
+    # Determine kernel size based on the feature dimensions
+    # For small feature dimensions, use a smaller kernel
+    kernel_size = (3, 3) if input_sh[1] >= 5 else (1, 1)
+    print(f"Using kernel size: {kernel_size}")
+    
+    # Apply Conv2D directly with the channels
+    x = tf.keras.layers.Conv2D(16, kernel_size, padding='same', activation='relu')(x_input)
+    print(f"After Conv2D shape: {x.shape}")
+    
+    x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2), padding='same')(x)
+    print(f"After MaxPooling2D shape: {x.shape}")
+    
+    # Flatten the spatial dimensions but keep the time dimension
+    # Calculate new dimensions after pooling
+    new_height = x.shape[1] if x.shape[1] is not None else input_sh[0] // 2
+    new_width = x.shape[2] if x.shape[2] is not None else input_sh[1] // 2
+    print(f"Calculated reshape dimensions: ({new_height}, {new_width * 16})")
+    
+    # Reshape to (batch_size, time_steps, features)
+    x = tf.keras.layers.Reshape((new_height, new_width * 16))(x)
+    print(f"After Reshape shape: {x.shape}")
+    
+    # Dense layers applied to each time step
+    x = tf.keras.layers.Dense(64, activation='relu')(x)
+    print(f"After Dense(64) shape: {x.shape}")
+    
+    x = tf.keras.layers.Dropout(0.1)(x)
+    x = tf.keras.layers.Dense(64, activation='relu')(x)
+    print(f"After second Dense(64) shape: {x.shape}")
+    
+    # GRU layer for temporal processing
+    x = tf.keras.layers.GRU(128, return_sequences=False)(x)
+    print(f"After GRU shape: {x.shape}")
+    
+    # Final classification
+    x = tf.keras.layers.Dropout(0.1)(x)
+    x = tf.keras.layers.Dense(output_sh, activation=None)(x)
+    print(f"Final output shape: {x.shape}")
+    
+    # Create model
+    model = tf.keras.Model(inputs=x_input, outputs=x, name='csi_gru_cnn_model')
+    
+    return model
+
+
+def csi_network_pytorch_style(input_sh, output_sh):
+    """
+    PyTorch-style CNN-GRU model that closely follows the PyTorch implementation.
+    
+    This model first reshapes the input to add a channel dimension,
+    processes the data through a CNN pathway, and then feeds it to a GRU.
+    
+    Args:
+        input_sh: Input shape tuple (sample_length, feature_length, channels)
+        output_sh: Number of output classes
+        
+    Returns:
+        Compiled Keras model
+    """
+    print(f"PyTorch-style model input shape: {input_sh}")
+    
+    # Input layer
+    x_input = tf.keras.Input(input_sh)
+    
+    # Reshape to treat the last dimension as channels and add a new channel dimension
+    # Equivalent to PyTorch input format (batch, time, height, width)
+    x = tf.keras.layers.Reshape((input_sh[0], input_sh[1], 1))(x_input)
+    print(f"After initial reshape: {x.shape}")
+    
+    # CNN Feature Extraction (equivalent to l_ex in PyTorch model)
+    # Determine kernel size based on the feature dimensions
+    kernel_size = (3, 3) if input_sh[1] >= 5 else (1, 1)
+    print(f"Using kernel size: {kernel_size}")
+    
+    x = tf.keras.layers.Conv2D(16, kernel_size, padding='same')(x)
+    print(f"After Conv2D shape: {x.shape}")
+    
+    # Use same padding in MaxPooling to ensure we don't lose too much spatial information
+    x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2), padding='same')(x)
+    print(f"After MaxPooling2D shape: {x.shape}")
+    
+    x = tf.keras.layers.Flatten()(x)
+    print(f"After Flatten shape: {x.shape}")
+    
+    x = tf.keras.layers.Dense(64)(x)
+    print(f"After Dense(64) shape: {x.shape}")
+    
+    x = tf.keras.layers.ReLU()(x)
+    x = tf.keras.layers.Dropout(0.1)(x)
+    
+    x = tf.keras.layers.Dense(64)(x)
+    x = tf.keras.layers.ReLU()(x)
+    print(f"After second Dense(64) + ReLU shape: {x.shape}")
+    
+    # Reshape for GRU - we need to add a time dimension
+    # In PyTorch model, this is handled differently because PyTorch processes batches differently
+    # Here we add a time dimension of 1 (single timestep)
+    x = tf.keras.layers.Reshape((1, 64))(x)
+    print(f"After reshape for GRU: {x.shape}")
+    
+    # GRU layer
+    x = tf.keras.layers.GRU(128)(x)
+    print(f"After GRU shape: {x.shape}")
+    
+    # Final classification
+    x = tf.keras.layers.Dropout(0.1)(x)
+    x = tf.keras.layers.Dense(output_sh, activation=None)(x)
+    print(f"Final output shape: {x.shape}")
+    
+    # Create model
+    model = tf.keras.Model(inputs=x_input, outputs=x, name='csi_pytorch_style_model')
+    
+    return model

@@ -29,6 +29,13 @@ TF_ENV_VARS = CUDA_HOME=$(CUDA_HOME) \
 # Set default model name (if not provided by user)
 MODEL_NAME ?= custom_model
 
+# Add default model type
+# model_type accepts these values:
+# lstm_cnn: Uses the LSTM-CNN hybrid architecture
+# inc_res: Uses the Inception-ResNet style architecture (SHARP)
+# gru_cnn: Uses the GRU-CNN hybrid architecture (WIDAR)
+MODEL_TYPE ?= lstm_cnn
+
 RQ_NUMBER = $(shell \
     if echo "$(MODEL_NAME)" | grep -qE '^no_(bedroom|kitchen|lab|living|office|semi)$$'; then \
         echo "RQ1_generalization/leave_one_out/$(MODEL_NAME)"; \
@@ -74,15 +81,35 @@ LABORATORY = AR7a
 OFFICE = AR8a
 SEMI_ANECHOIC = AR9a
 
+# # Domain Definitions
+# BEDROOM = AR1a,AR1b,AR1c,AR1d,AR1e,AR2a,AR3a,AR3b,AR4a
+# LIVING_ROOM = AR5a,AR5b
+# KITCHEN = AR6a
+# LABORATORY = AR7a
+# OFFICE = AR8a,AR8b
+# SEMI_ANECHOIC = AR9a,AR9b,AR9c
 # Domain Splits for Source Variation Experiments
-BEDROOM_SPLIT1 = AR1a,AR1b,AR1c
-BEDROOM_SPLIT2 = AR1d,AR1e,AR2a
+SAME_DOMAIN_SCALING_BEDROOM_SPLIT1 = AR1a
+SAME_DOMAIN_SCALING_BEDROOM_SPLIT2 = AR1a,AR1b
+SAME_DOMAIN_SCALING_BEDROOM_SPLIT3 = AR1a,AR1b,AR1c
+SAME_DOMAIN_SCALING_BEDROOM_SPLIT4 = AR1a,AR1b,AR1c,AR1d
+SAME_DOMAIN_SCALING_BEDROOM_SPLIT5 = AR1a,AR1b,AR1c,AR1d,AR1e
+SAME_DOMAIN_SCALING_BEDROOM_SPLIT6 = AR1a,AR1b,AR1c,AR1d,AR1e,AR2a
+
+
+DIFFERENT_DOMAIN_SCALING_SPLIT1 = AR1a
+DIFFERENT_DOMAIN_SCALING_SPLIT2 = AR1a,AR5a
+DIFFERENT_DOMAIN_SCALING_SPLIT3 = AR1a,AR5a,AR6a
+DIFFERENT_DOMAIN_SCALING_SPLIT4 = AR1a,AR5a,AR6a,AR7a
+DIFFERENT_DOMAIN_SCALING_SPLIT5 = AR1a,AR5a,AR6a,AR7a,AR8a
+DIFFERENT_DOMAIN_SCALING_SPLIT6 = AR1a,AR5a,AR6a,AR7a,AR8a,AR9a
+
 LIVING_SPLIT1 = AR5a
 LIVING_SPLIT2 = AR5b
 OFFICE_SPLIT1 = AR8a
 OFFICE_SPLIT2 = AR8b
-SEMI_SPLIT1 = AR9a,AR9b
-SEMI_SPLIT2 = AR9c
+SEMI_SPLIT1 = AR9a
+SEMI_SPLIT2 = AR9b
 
 # Comma-separated experiment setups (no spaces)
 AR_SETUPS = $(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)
@@ -229,11 +256,102 @@ source_3:
 source_4:
 	make run_complete TRAIN_DOMAINS="$(BEDROOM_SPLIT1),$(LIVING_SPLIT1),$(OFFICE_SPLIT1),$(SEMI_SPLIT1)" TEST_DOMAINS="$(BEDROOM_SPLIT2),$(LIVING_SPLIT2),$(OFFICE_SPLIT2),$(SEMI_SPLIT2)" MODEL_NAME=source4
 
+# Source Scaling Evaluation - Same Domain (RQ4 Extended)
+source_scaling_same_all: source_scaling_same_living source_scaling_same_lab
+
+# Source scaling on living room targets with increasing bedroom training data
+source_scaling_same_living: source_scaling_same_split1_left_living source_scaling_same_split2_left_living source_scaling_same_split3_left_living source_scaling_same_split4_left_living source_scaling_same_split5_left_living source_scaling_same_split6_left_living
+
+source_scaling_same_split1_left_living:
+	make run_complete TRAIN_DOMAINS="$(SAME_DOMAIN_SCALING_BEDROOM_SPLIT1)" TEST_DOMAINS="$(LIVING_ROOM)" MODEL_NAME=same_split1_left_living
+
+source_scaling_same_split2_left_living:
+	make run_complete TRAIN_DOMAINS="$(SAME_DOMAIN_SCALING_BEDROOM_SPLIT2)" TEST_DOMAINS="$(LIVING_ROOM)" MODEL_NAME=same_split2_left_living
+
+source_scaling_same_split3_left_living:
+	make run_complete TRAIN_DOMAINS="$(SAME_DOMAIN_SCALING_BEDROOM_SPLIT3)" TEST_DOMAINS="$(LIVING_ROOM)" MODEL_NAME=same_split3_left_living
+
+source_scaling_same_split4_left_living:
+	make run_complete TRAIN_DOMAINS="$(SAME_DOMAIN_SCALING_BEDROOM_SPLIT4)" TEST_DOMAINS="$(LIVING_ROOM)" MODEL_NAME=same_split4_left_living
+
+source_scaling_same_split5_left_living:
+	make run_complete TRAIN_DOMAINS="$(SAME_DOMAIN_SCALING_BEDROOM_SPLIT5)" TEST_DOMAINS="$(LIVING_ROOM)" MODEL_NAME=same_split5_left_living
+
+source_scaling_same_split6_left_living:
+	make run_complete TRAIN_DOMAINS="$(SAME_DOMAIN_SCALING_BEDROOM_SPLIT6)" TEST_DOMAINS="$(LIVING_ROOM)" MODEL_NAME=same_split6_left_living
+
+# Source scaling on laboratory targets with increasing bedroom training data
+source_scaling_same_lab: source_scaling_same_split1_left_lab source_scaling_same_split2_left_lab source_scaling_same_split3_left_lab source_scaling_same_split4_left_lab source_scaling_same_split5_left_lab source_scaling_same_split6_left_lab
+
+source_scaling_same_split1_left_lab:
+	make run_complete TRAIN_DOMAINS="$(SAME_DOMAIN_SCALING_BEDROOM_SPLIT1)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=same_split1_left_lab
+
+source_scaling_same_split2_left_lab:
+	make run_complete TRAIN_DOMAINS="$(SAME_DOMAIN_SCALING_BEDROOM_SPLIT2)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=same_split2_left_lab
+
+source_scaling_same_split3_left_lab:
+	make run_complete TRAIN_DOMAINS="$(SAME_DOMAIN_SCALING_BEDROOM_SPLIT3)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=same_split3_left_lab
+
+source_scaling_same_split4_left_lab:
+	make run_complete TRAIN_DOMAINS="$(SAME_DOMAIN_SCALING_BEDROOM_SPLIT4)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=same_split4_left_lab
+
+source_scaling_same_split5_left_lab:
+	make run_complete TRAIN_DOMAINS="$(SAME_DOMAIN_SCALING_BEDROOM_SPLIT5)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=same_split5_left_lab
+
+source_scaling_same_split6_left_lab:
+	make run_complete TRAIN_DOMAINS="$(SAME_DOMAIN_SCALING_BEDROOM_SPLIT6)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=same_split6_left_lab
+
+# Source Scaling Evaluation - Different Domains (RQ4 Extended)
+source_scaling_different_all: source_scaling_different_living source_scaling_different_lab
+
+# Source scaling on living room targets with increasing different domain training data
+source_scaling_different_living: source_scaling_different_split1_left_living source_scaling_different_split2_left_living source_scaling_different_split3_left_living source_scaling_different_split4_left_living source_scaling_different_split5_left_living source_scaling_different_split6_left_living
+
+source_scaling_different_split1_left_living:
+	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT1)" TEST_DOMAINS="$(LIVING_ROOM)" MODEL_NAME=diff_split1_left_living
+
+source_scaling_different_split2_left_living:
+	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT2)" TEST_DOMAINS="$(LIVING_ROOM)" MODEL_NAME=diff_split2_left_living
+
+source_scaling_different_split3_left_living:
+	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT3)" TEST_DOMAINS="$(LIVING_ROOM)" MODEL_NAME=diff_split3_left_living
+
+source_scaling_different_split4_left_living:
+	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT4)" TEST_DOMAINS="$(LIVING_ROOM)" MODEL_NAME=diff_split4_left_living
+
+source_scaling_different_split5_left_living:
+	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT5)" TEST_DOMAINS="$(LIVING_ROOM)" MODEL_NAME=diff_split5_left_living
+
+source_scaling_different_split6_left_living:
+	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT6)" TEST_DOMAINS="$(LIVING_ROOM)" MODEL_NAME=diff_split6_left_living
+
+# Source scaling on laboratory targets with increasing different domain training data
+source_scaling_different_lab: source_scaling_different_split1_left_lab source_scaling_different_split2_left_lab source_scaling_different_split3_left_lab source_scaling_different_split4_left_lab source_scaling_different_split5_left_lab source_scaling_different_split6_left_lab
+
+source_scaling_different_split1_left_lab:
+	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT1)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=diff_split1_left_lab
+
+source_scaling_different_split2_left_lab:
+	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT2)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=diff_split2_left_lab
+
+source_scaling_different_split3_left_lab:
+	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT3)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=diff_split3_left_lab
+
+source_scaling_different_split4_left_lab:
+	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT4)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=diff_split4_left_lab
+
+source_scaling_different_split5_left_lab:
+	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT5)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=diff_split5_left_lab
+
+source_scaling_different_split6_left_lab:
+	make run_complete TRAIN_DOMAINS="$(DIFFERENT_DOMAIN_SCALING_SPLIT6)" TEST_DOMAINS="$(LABORATORY)" MODEL_NAME=diff_split6_left_lab
+
 # Base Targets with Dynamic Domains --------------------------------------------
 train:
 	$(TF_ENV_VARS) \
 	python CSI_network.py "$(DOPPLER_DIR)" "$(TRAIN_DOMAINS)" \
-	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) $(MODEL_NAME) "$(ACTIVITIES)" --bandwidth 80
+	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) $(MODEL_NAME) "$(ACTIVITIES)" \
+	--bandwidth 80 --model_type $(MODEL_TYPE)
 	@# Removing the post_training_cleanup call from here as it should only run at the end
 	@echo "Training completed"
 
@@ -243,7 +361,7 @@ test:
 	$(TF_ENV_VARS) \
 	python CSI_network_test.py "$(DOPPLER_DIR)" "$(TEST_DOMAINS)" \
 	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) $(MODEL_NAME) "$(ACTIVITIES)" \
-	--bandwidth 80
+	--bandwidth 80 --model_type $(MODEL_TYPE)
 	
 	@# Auto-create directory structure properly
 	@mkdir -p $(RESULTS_PATH)metrics
@@ -877,3 +995,22 @@ clean_model:
 	@make artifact_cleanup
 	
 	@echo "All artifacts for model $(MODEL_NAME) have been cleaned."
+
+# Model Selection Targets ----------------------------------------------------
+# These targets allow running specific model architectures
+
+train_lstm_cnn:
+	make train MODEL_TYPE=lstm_cnn
+
+train_inc_res:
+	make train MODEL_TYPE=inc_res
+
+train_gru_cnn:
+	make train MODEL_TYPE=gru_cnn
+
+train_pytorch_style:
+	make train MODEL_TYPE=pytorch_style
+
+# Example usage: make train_model MODEL_TYPE=lstm_cnn TRAIN_DOMAINS="AR1a" MODEL_NAME="custom_model" ACTIVITIES="J,L"
+train_model:
+	make train MODEL_TYPE=$(MODEL_TYPE) TRAIN_DOMAINS="$(TRAIN_DOMAINS)" MODEL_NAME="$(MODEL_NAME)" ACTIVITIES="$(ACTIVITIES)"

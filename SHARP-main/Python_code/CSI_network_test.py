@@ -41,6 +41,8 @@ if __name__ == '__main__':
                                             '(default 80)', default=80, required=False, type=int)
     parser.add_argument('--sub_band', help='Sub_band idx in [1, 2, 3, 4] for 20 MHz, [1, 2] for 40 MHz '
                                            '(default 1)', default=1, required=False, type=int)
+    parser.add_argument('--model_type', help='Type of model to use: lstm_cnn, inc_res, gru_cnn, pytorch_style (default: gru_cnn)',
+                        default='gru_cnn', choices=['lstm_cnn', 'inc_res', 'gru_cnn', 'pytorch_style'], required=False)
     args = parser.parse_args()
 
     gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -130,7 +132,11 @@ if __name__ == '__main__':
 
     name_model = name_base + '_' +  '_'.join(csi_act.split(',')) + '_network.h5'
     csi_model = load_model(name_model)
-
+    
+    # Note: The model_type parameter is for consistency with the training script.
+    # It's not used directly here since we're loading a pre-trained model that was 
+    # already created with a specific architecture.
+    
     num_samples_complete = len(file_complete_selected_expanded)
     lab_complete, count_complete = np.unique(labels_complete_selected_expanded, return_counts=True)
     complete_steps_per_epoch = int(np.ceil(num_samples_complete / batch_size))
