@@ -18,8 +18,8 @@ import glob
 import os
 import numpy as np
 import pickle
-from dataset_utility import create_windows_antennas, convert_to_number
 import shutil
+from dataset_utility import create_windows_antennas, convert_to_number, balance_classes_by_undersampling
 
 
 if __name__ == '__main__':
@@ -32,6 +32,9 @@ if __name__ == '__main__':
     parser.add_argument('stride_lengths', help='Number of samples to stride', type=int)
     parser.add_argument('labels_activities', help='Labels of the activities to be considered')
     parser.add_argument('n_tot', help='Number of streams * number of antennas', type=int)
+    parser.add_argument('--filtered-activities', help='File containing list of filtered activity directories to use')
+    parser.add_argument('--bandwidth', default=80, help='Bandwidth (MHz) used in CSI measurement', type=int)
+    parser.add_argument('--balance-classes', action='store_true', help='Apply class balancing by undersampling after window creation')
     args = parser.parse_args()
 
     labels_activities = args.labels_activities
@@ -49,6 +52,13 @@ if __name__ == '__main__':
     print(f"Labels dictionary: {csi_label_dict}")
     print(f"Activities string: {activities}")
     print(f"Number of streams * antennas: {n_tot}")
+    
+    # If filtered activities file is provided, read the list of directories to use
+    filtered_activity_dirs = []
+    if args.filtered_activities and os.path.exists(args.filtered_activities):
+        with open(args.filtered_activities, 'r') as f:
+            filtered_activity_dirs = [line.strip() for line in f if line.strip()]
+        print(f"Using {len(filtered_activity_dirs)} filtered activity directories from {args.filtered_activities}")
 
     for subdir in list_subdir.split(','):
         exp_dir = os.path.join(args.dir, subdir)
@@ -56,36 +66,64 @@ if __name__ == '__main__':
         # Debug: Print the directory being processed
         print(f"Processing directory: {exp_dir}")
 
-        path_train = os.path.join(exp_dir, f'train_antennas_{activities}')
-        path_val = os.path.join(exp_dir, f'val_antennas_{activities}')
         path_test = os.path.join(exp_dir, f'test_antennas_{activities}')
-        paths = [path_train, path_val, path_test]
-        # for pat in paths:
-        #     if os.path.exists(pat):
-        #         shutil.rmtree(pat)
-        #         print(f"Removed directory: {pat}")
+        if os.path.exists(path_test):
+            remove_files = glob.glob(os.path.join(path_test, '*'))
+            for f in remove_files:
+                os.remove(f)
+            print(f"Cleaned existing directory: {path_test}")
+        else:
+            os.makedirs(path_test, exist_ok=True)
+            print(f"Created directory: {path_test}")
 
         path_complete = os.path.join(exp_dir, f'complete_antennas_{activities}')
         if os.path.exists(path_complete):
-            remove_files = glob.glob(os.path.join(path_complete, '*'))
-            for f in remove_files:
-                os.remove(f)
-            print(f"Cleaned directory: {path_complete}")
-        else:
-            os.mkdir(path_complete)
-            print(f"Created directory: {path_complete}")
+            shutil.rmtree(path_complete)
+            print(f"Removed existing directory: {path_complete}")
+        os.makedirs(path_complete)
 
         names = []
-        # Recursively find all .txt files in the subdirectory
-        for root, dirs, files in os.walk(exp_dir):
-            for file in files:
-                if file.endswith('.txt') and 'stream' in file:
-                    names.append(os.path.join(root, file[:-4]))  # Remove .txt extension
-        names.sort()
         
+        if filtered_activity_dirs:
+            # Use only files from the filtered activity directories for this subdirectory
+            domain_filtered_dirs = [d for d in filtered_activity_dirs if d.startswith(subdir) or d.startswith(f"{subdir}/")]
+            
+            if not domain_filtered_dirs:
+                print(f"No filtered activity directories found for {subdir}, skipping.")
+                continue
+                
+            print(f"Using {len(domain_filtered_dirs)} filtered activity directories for {subdir}")
+            
+            # Find all stream files in the filtered directories
+            for activity_dir in domain_filtered_dirs:
+                # Create full path to the activity directory
+                # Since filtered_activity_dirs contains relative paths (AR8a/AR8a_J1),
+                # we join with args.dir without risk of duplication
+                full_activity_dir = os.path.join(args.dir, activity_dir)
+                
+                if not os.path.exists(full_activity_dir):
+                    print(f"Warning: Activity directory does not exist: {full_activity_dir}")
+                    continue
+                
+                # Find all stream files in this activity directory
+                stream_files = glob.glob(os.path.join(full_activity_dir, f"*_stream_*.txt"))
+                for file in stream_files:
+                    names.append(file[:-4])  # Remove .txt extension
+                
+                print(f"Found {len(stream_files)} stream files in {activity_dir}")
+        else:
+            # Find all files recursively
+            for root, dirs, files in os.walk(exp_dir):
+                for file in files:
+                    if file.endswith('.txt') and 'stream' in file:
+                        names.append(os.path.join(root, file[:-4]))  # Remove .txt extension
+        
+        names.sort()
+
         # Debug: Print the number of files found
         print(f"Found {len(names)} files")
-        print(f"First few files: {names[:min(5, len(names))]}")
+        if names:
+            print(f"First few files: {names[:min(5, len(names))]}")
 
         csi_matrices = []
         labels = []
@@ -165,45 +203,57 @@ if __name__ == '__main__':
             stride_length = args.stride_lengths
 
             print(f"Creating windows with length={window_length}, stride={stride_length}")
-            csi_matrices_wind, labels_wind = create_windows_antennas(csi_complete, labels, window_length, stride_length,
+            csi_matrices_set, labels_set = create_windows_antennas(csi_complete, labels, window_length, stride_length,
                                                                      remove_mean=False)
 
-            num_windows = sum((length_i - window_length) // stride_length + 1 for length_i in lengths)
+            # Apply class balancing if requested
+            if args.balance_classes:
+                print(f"Applying class balancing to test windows...")
+                csi_matrices_set, labels_set = balance_classes_by_undersampling(csi_matrices_set, labels_set, random_seed=42)
+                print(f"After balancing: {len(csi_matrices_set)} windows")
 
-            print(f"Window length: {window_length}, Stride length: {stride_length}")
-            print(f"Lengths of data: {lengths}")  # Use correct variable name
-            print(f"Calculated number of windows: {num_windows}")
-            print(f"Actual number of windows: {len(csi_matrices_wind)}")             
-            if not len(csi_matrices_wind) == np.sum(num_windows):
-                print(f'ERROR - shapes mismatch: got {len(csi_matrices_wind)}, expected {np.sum(num_windows)}')
-            else:
-                print(f"Created {len(csi_matrices_wind)} windows successfully")
-            print("Per-sequence window counts:")
-            for i, length_i in enumerate(lengths):
-                seq_windows = (length_i - window_length) // stride_length + 1
-                print(f"  Sequence {i} (len={length_i}): {seq_windows} windows")
-
-            names_complete = []
+            # Save test windows to test_antennas directory
+            names_test = []
             suffix = '.txt'
-            for ii in range(len(csi_matrices_wind)):
-                name_file = os.path.join(exp_dir, f'complete_antennas_{activities}', f'{ii}{suffix}')
+            for ii in range(len(csi_matrices_set)):
+                name_file = os.path.join(exp_dir, f"test_antennas_{activities}", f"{ii}{suffix}")
+                names_test.append(name_file)
+                with open(name_file, "wb") as fp:  # Pickling
+                    pickle.dump(csi_matrices_set[ii], fp)
+            
+            print(f"Saved {len(names_test)} files for test set")
+            
+            # Save test metadata with proper prefix
+            name_labels = os.path.join(exp_dir, f'labels_test_antennas_{activities}{suffix}')
+            with open(name_labels, "wb") as fp:  # Pickling
+                pickle.dump(labels_set, fp)
+                
+            name_f = os.path.join(exp_dir, f'files_test_antennas_{activities}{suffix}')
+            with open(name_f, "wb") as fp:  # Pickling
+                pickle.dump(names_test, fp)
+                
+            name_f = os.path.join(exp_dir, f'num_windows_test_antennas_{activities}{suffix}')
+            with open(name_f, "wb") as fp:  # Pickling
+                pickle.dump(len(csi_matrices_set), fp)
+                
+            # Also save for complete directory (for backward compatibility)
+            names_complete = []
+            for ii in range(len(csi_matrices_set)):
+                name_file = os.path.join(exp_dir, f"complete_antennas_{activities}", f"{ii}{suffix}")
                 names_complete.append(name_file)
                 with open(name_file, "wb") as fp:  # Pickling
-                    pickle.dump(csi_matrices_wind[ii], fp)
+                    pickle.dump(csi_matrices_set[ii], fp)
             
-            print(f"Saved {len(names_complete)} window files")
-            
-
             name_labels = os.path.join(exp_dir, f'labels_complete_antennas_{activities}{suffix}')
             with open(name_labels, "wb") as fp:  # Pickling
-                pickle.dump(labels_wind, fp)
+                pickle.dump(labels_set, fp)
                 
             name_f = os.path.join(exp_dir, f'files_complete_antennas_{activities}{suffix}')
             with open(name_f, "wb") as fp:  # Pickling
                 pickle.dump(names_complete, fp)
                 
-            name_f = os.path.join(exp_dir, f'num_windows_antennas_{activities}{suffix}')
+            name_f = os.path.join(exp_dir, f'num_windows_complete_antennas_{activities}{suffix}')
             with open(name_f, "wb") as fp:  # Pickling
-                pickle.dump(num_windows, fp)
+                pickle.dump(len(csi_matrices_set), fp)
                 
             print(f"Finished processing and saved metadata files")

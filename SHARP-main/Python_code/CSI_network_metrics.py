@@ -370,11 +370,15 @@ if __name__ == '__main__':
     average_f = np.mean(recall)
     print('single antenna - average accuracy %f, average precision %f, average recall %f, average fscore %f'
           % (accuracy, average_prec, average_rec, average_f))
-    print('fscores - empty %f, sitting %f, walking %f, running %f, jumping %f'
-          % (fscore[0], fscore[1], fscore[2], fscore[3], fscore[4]))
+    
+    # Print fscores for each activity dynamically based on provided activities
+    fscore_str = ', '.join([f"{activities[i]} {fscore[i]:.6f}" for i in range(min(len(activities), len(fscore)))])
+    print(f'fscores - {fscore_str}')
     print('average fscore %f' % (np.mean(fscore)))
-    print('accuracies - empty %f, sitting %f, walking %f, running %f, jumping %f'
-          % (accuracies[0], accuracies[1], accuracies[2], accuracies[3], accuracies[4]))
+    
+    # Print accuracies for each activity dynamically based on provided activities
+    accuracies_str = ', '.join([f"{activities[i]} {accuracies[i]:.6f}" for i in range(min(len(activities), len(accuracies)))])
+    print(f'accuracies - {accuracies_str}')
 
     conf_matrix_max_merge = conf_matrix_dict['conf_matrix_max_merge']
     # Apply the same safety check for the second matrix
@@ -393,11 +397,14 @@ if __name__ == '__main__':
     print('\n-- FINAL DECISION --')
     print('max-merge - average accuracy %f, average precision %f, average recall %f, average fscore %f'
           % (accuracy_max_merge, average_max_merge_prec, average_max_merge_rec, average_max_merge_f))
-    print('fscores - empty %f, sitting %f, walking %f, running %f, jumping %f'
-          % (fscore_max_merge[0], fscore_max_merge[1], fscore_max_merge[2], fscore_max_merge[3], fscore_max_merge[4]))
-    print('accuracies - empty %f, sitting %f, walking %f, running %f, jumping %f'
-          % (accuracies_max_merge[0], accuracies_max_merge[1], accuracies_max_merge[2], accuracies_max_merge[3],
-             accuracies_max_merge[4]))
+    
+    # Print fscores for max merge dynamically based on provided activities
+    fscore_max_merge_str = ', '.join([f"{activities[i]} {fscore_max_merge[i]:.6f}" for i in range(min(len(activities), len(fscore_max_merge)))])
+    print(f'fscores - {fscore_max_merge_str}')
+    
+    # Print accuracies for max merge dynamically based on provided activities
+    accuracies_max_merge_str = ', '.join([f"{activities[i]} {accuracies_max_merge[i]:.6f}" for i in range(min(len(activities), len(accuracies_max_merge)))])
+    print(f'accuracies - {accuracies_max_merge_str}')
 
     # performance assessment by changing the number of monitor antennas
     # Get the directory of the input file to look for the antenna variation file in the same location

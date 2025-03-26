@@ -60,16 +60,19 @@ WINDOW_LENGTH = 340
 STRIDE = 30
 FEATURE_LENGTH = 100
 BATCH_SIZE = 32
-ACTIVITIES = E,W,R,J,L,S,C,G
+# Default activities - can be overridden via command line:
+# e.g., make run_complete ACTIVITIES="E,J,W" TEST_DOMAINS="..." TRAIN_DOMAINS="..." MODEL_NAME="..."
+# Options: E (empty), J (jumping), L (walking in loop), R (running), W (walking)
+ACTIVITIES ?= J,L,E,R
 NUM_ANTENNAS = 4
 
 # Domain Definitions
-BEDROOM = AR1a,AR1b,AR1c,AR1d,AR1e,AR2a,AR3a,AR3b,AR4a
-LIVING_ROOM = AR5a,AR5b
+BEDROOM = AR1a
+LIVING_ROOM = AR5a
 KITCHEN = AR6a
 LABORATORY = AR7a
-OFFICE = AR8a,AR8b
-SEMI_ANECHOIC = AR9a,AR9b,AR9c
+OFFICE = AR8a
+SEMI_ANECHOIC = AR9a
 
 # Domain Splits for Source Variation Experiments
 BEDROOM_SPLIT1 = AR1a,AR1b,AR1c
@@ -85,7 +88,8 @@ SEMI_SPLIT2 = AR9c
 AR_SETUPS = $(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)
 #AR_SETUPS = $(KITCHEN),$(LABORATORY)
 .PHONY: all clean data_processing datasets train test metrics plots all_plots \
-        rq1 rq4 leave_one_out varying_sources cross_domain check_cuda
+        rq1 rq4 leave_one_out varying_sources cross_domain check_cuda \
+        clean_run_artifacts clean_model post_training_cleanup test_training clean_experiment
 
 # Check CUDA configuration and TensorFlow GPU setup
 check_cuda:
@@ -120,12 +124,18 @@ data_processing:
 		python CSI_doppler_computation.py "$(PROCESSED_PHASE_DIR)" "$$setup" "$(DOPPLER_DIR)" 0 0 $(SAMPLE_LENGTH) $(SLIDING) $(NOISE_LEVEL) --bandwidth 80; \
 	done
 
+# Filter Activities to include only one of each type (based on user-specified ACTIVITIES)
+filter_activities:
+	@echo "Filtering activities to keep only one instance of each activity type..."
+	@python filter_doppler_activities.py "$(DOPPLER_DIR)" --activities "$(ACTIVITIES)" --output filtered_activities.txt
+	@echo "Created filtered activity list in filtered_activities.txt"
+
 # Dataset Creation
-datasets:
+datasets: filter_activities
 	# Create output directories first
 	mkdir -p $(DATASET_DIR)
 	
-	# Create datasets for all domains
+	# Create datasets for all domains using filtered activities
 	python CSI_doppler_create_dataset_train.py \
 		"$(DOPPLER_DIR)" \
 		"$(AR_SETUPS)" \
@@ -134,7 +144,9 @@ datasets:
 		$(WINDOW_LENGTH) \
 		$(STRIDE) \
 		"$(ACTIVITIES)" \
-		$(NUM_ANTENNAS)
+		$(NUM_ANTENNAS) \
+		--filtered-activities filtered_activities.txt \
+		--balance-classes
 	
 	python CSI_doppler_create_dataset_test.py \
 		"$(DOPPLER_DIR)" \
@@ -144,7 +156,9 @@ datasets:
 		$(WINDOW_LENGTH) \
 		$(STRIDE) \
 		"$(ACTIVITIES)" \
-		$(NUM_ANTENNAS)
+		$(NUM_ANTENNAS) \
+		--filtered-activities filtered_activities.txt \
+		--balance-classes
 
 # Experiment Targets ----------------------------------------------------------
 
@@ -153,6 +167,10 @@ rq1: leave_one_out
 rq4: varying_sources
 
 test_training:
+	@# Perform full cleanup before running
+	@echo "Performing full cleanup before test training..."
+	@make post_training_cleanup
+	
 	@# First, set MODEL_NAME explicitly so RQ_NUMBER is calculated correctly
 	@MODEL_NAME=no_bedroom && \
 	RQ_NUMBER=$$(if echo "$$MODEL_NAME" | grep -qE '^no_(bedroom|kitchen|lab|living|office|semi)$$'; then \
@@ -168,23 +186,23 @@ test_training:
 	RESULTS_PATH=$(RESULTS_DIR)$$RQ_NUMBER/ && \
 	echo "Using RESULTS_PATH: $$RESULTS_PATH" && \
 	\
-	make run_complete TEST_DOMAINS="$(OFFICE)" TRAIN_DOMAINS="$(KITCHEN)" MODEL_NAME=no_bedroom && \
+	make run_complete TEST_DOMAINS="$(LABORATORY)" TRAIN_DOMAINS="$(OFFICE)" MODEL_NAME=no_bedroom && \
 	\
 	# Ensure environment variables are exported for metrics calculation \
-	export TRAIN_DOMAINS="$(KITCHEN)" && \
-	export TEST_DOMAINS="$(OFFICE)" && \
+	export TRAIN_DOMAINS="$(OFFICE)" && \
+	export TEST_DOMAINS="$(LABORATORY)" && \
 	echo "Running metrics calculation with explicitly set domains..." && \
-	find $$RESULTS_PATH/metrics -name 'complete_different_*.txt' -exec bash -c 'TRAIN_DOMAINS="$(KITCHEN)" TEST_DOMAINS="$(OFFICE)" python CSI_network_metrics.py {} "$(ACTIVITIES)"' \; && \
+	find $$RESULTS_PATH/metrics -name 'complete_different_*.txt' -exec bash -c 'TRAIN_DOMAINS="$(OFFICE)" TEST_DOMAINS="$(LABORATORY)" python CSI_network_metrics.py {} "$(ACTIVITIES)"' \; && \
 	echo "Metrics recalculated with correct domain values"
 
 # Leave-One-Domain-Out Evaluation (RQ1)
 leave_one_out: leave_one_bedroom leave_one_living leave_one_kitchen leave_one_lab leave_one_office leave_one_semi
 
 leave_one_bedroom:
-	make run_complete TEST_DOMAINS="$(BEDROOM)" TRAIN_DOMAINS="$(LIVING_ROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_bedroom
+	make run_complete TEST_DOMAINS="$(BEDROOM)" TRAIN_DOMAINS="$(LIVING_ROOM),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_bedroom
 
 leave_one_living:
-	make run_complete TEST_DOMAINS="$(LIVING_ROOM)" TRAIN_DOMAINS="$(BEDROOM),$(KITCHEN),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_living
+	make run_complete TEST_DOMAINS="$(LIVING_ROOM)" TRAIN_DOMAINS="$(BEDROOM),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_living
 
 leave_one_kitchen:
 	make run_complete TEST_DOMAINS="$(KITCHEN)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_kitchen
@@ -218,8 +236,8 @@ train:
 	$(TF_ENV_VARS) \
 	python CSI_network.py "$(DOPPLER_DIR)" "$(TRAIN_DOMAINS)" \
 	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) $(MODEL_NAME) "$(ACTIVITIES)" --bandwidth 80
-	@$(MAKE) post_training_cleanup
-	@echo "Training completed and temporary files cleaned"
+	@# Removing the post_training_cleanup call from here as it should only run at the end
+	@echo "Training completed"
 
 # Automated Test Target
 test:
@@ -270,8 +288,32 @@ test:
 # Add this new target before run_complete
 clean_run_artifacts:
 	@echo "Cleaning up artifacts from previous runs..."
+	
+	@# Remove activity files
 	@rm -f train_activities.txt test_activities.txt common_activities.txt common_activities.csv
-	@echo "Temporary activity files removed."
+	
+	@# Clean up model-specific temporary files for current MODEL_NAME
+	@if [ -n "$(MODEL_NAME)" ]; then \
+		echo "Cleaning up specific artifacts for model: $(MODEL_NAME)"; \
+		rm -f $(MODEL_NAME)_*.json 2>/dev/null || true; \
+		rm -f $(MODEL_NAME)_*.csv 2>/dev/null || true; \
+		rm -f $(MODEL_NAME)_*.pkl 2>/dev/null || true; \
+		rm -f $(MODEL_NAME)_*.pickle 2>/dev/null || true; \
+		rm -f confusion_matrix_$(MODEL_NAME)*.txt 2>/dev/null || true; \
+		rm -f accuracy_$(MODEL_NAME)*.txt 2>/dev/null || true; \
+	fi
+	
+	@# Clean up output files in results directory that match the model name
+	@if [ -n "$(MODEL_NAME)" ] && [ -d "./results" ]; then \
+		echo "Cleaning up output files for model: $(MODEL_NAME)"; \
+		find ./results -name "*$(MODEL_NAME)*" -type f -not -path "*/model/*" -not -path "*/metrics/*" -not -path "*/plots/*" -delete 2>/dev/null || true; \
+	fi
+	
+	@# Clean up specific TensorFlow/Keras artifacts
+	@rm -f keras_session_* 2>/dev/null || true
+	@rm -f .keras_history* 2>/dev/null || true
+	
+	@echo "Temporary files cleaned up."
 	@echo "Note: To fully clean datasets and models, use 'make clean_datasets' or 'make clean_all'"
 
 # Add a more comprehensive cleanup target
@@ -287,7 +329,7 @@ clean_run_artifacts:
 # 	@echo "Dataset directories cleaned."
 
 # Add comprehensive cleanup target
-clean_all: post_training_cleanup
+clean_all: artifact_cleanup
 	@echo "Removing models..."
 	@rm -rf $(MODEL_DIR)*.h5
 	@echo "Removing results..."
@@ -312,11 +354,11 @@ regenerate_metrics:
 		exit 1; \
 	fi
 	@if [ -z "$(ACTIVITIES)" ]; then \
-		ACTIVITIES="E,W,R,J,L,S,C,G"; \
-		echo "Using default activities: $$ACTIVITIES"; \
+		ACTIVITIES_LOCAL="E,J,L,W"; \
+		echo "Using default activities: $$ACTIVITIES_LOCAL"; \
 	else \
-		ACTIVITIES="$(ACTIVITIES)"; \
-		echo "Using specified activities: $$ACTIVITIES"; \
+		ACTIVITIES_LOCAL="$(ACTIVITIES)"; \
+		echo "Using specified activities: $$ACTIVITIES_LOCAL"; \
 	fi
 	@# Remove existing metrics file if it exists
 	@if [ -f "$(RESULTS_DIR)experiment_metrics.csv" ]; then \
@@ -330,13 +372,13 @@ regenerate_metrics:
 	METRICS_FILE=$$(find $(RESULTS_DIR)$(RQ_NUMBER)/metrics/ -name 'complete_different_*.txt' | head -n 1) && \
 	if [ -n "$$METRICS_FILE" ]; then \
 		echo "Processing metrics file: $$METRICS_FILE" && \
-		TRAIN_DOMAINS="$(TRAIN_DOMAINS)" TEST_DOMAINS="$(TEST_DOMAINS)" python CSI_network_metrics.py "$$METRICS_FILE" "$$ACTIVITIES"; \
+		TRAIN_DOMAINS="$(TRAIN_DOMAINS)" TEST_DOMAINS="$(TEST_DOMAINS)" python CSI_network_metrics.py "$$METRICS_FILE" "$$ACTIVITIES_LOCAL"; \
 	else \
 		echo "No metrics files found in $(RESULTS_DIR)$(RQ_NUMBER)/metrics/. Trying results directory..." && \
 		METRICS_FILE=$$(find $(RESULTS_DIR) -name 'complete_different_*.txt' | head -n 1) && \
 		if [ -n "$$METRICS_FILE" ]; then \
 			echo "Processing metrics file: $$METRICS_FILE" && \
-			TRAIN_DOMAINS="$(TRAIN_DOMAINS)" TEST_DOMAINS="$(TEST_DOMAINS)" python CSI_network_metrics.py "$$METRICS_FILE" "$$ACTIVITIES"; \
+			TRAIN_DOMAINS="$(TRAIN_DOMAINS)" TEST_DOMAINS="$(TEST_DOMAINS)" python CSI_network_metrics.py "$$METRICS_FILE" "$$ACTIVITIES_LOCAL"; \
 		else \
 			echo "No metrics files found. Please run the experiment first."; \
 			exit 1; \
@@ -348,10 +390,42 @@ regenerate_metrics:
 		cat "$(RESULTS_DIR)experiment_metrics.csv"; \
 	fi
 
-# Modify the run_complete target to call clean_run_artifacts at the beginning
+# Rename post_workflow_cleanup to pre_workflow_cleanup and update its message
+pre_workflow_cleanup:
+	@echo "======== INITIAL CLEANUP - ONLY PERFORMED AT START OF WORKFLOW ========"
+	@echo "Cleaning up all temporary files and artifacts before starting the workflow..."
+	
+	@# First perform all standard cleanup tasks from artifact_cleanup
+	@make artifact_cleanup
+	
+	@# Additional cache file cleanup that was previously done in the Python scripts
+	@echo "Performing comprehensive cache file cleanup..."
+	@# Clean up model-specific cache files for current MODEL_NAME, including patterns from Python scripts
+	@if [ -n "$(MODEL_NAME)" ]; then \
+		echo "Cleaning up specific cache files for model: $(MODEL_NAME)"; \
+		# Find all cache files for this model with any activities \
+		for activity_combo in $$(find . -name "$(MODEL_NAME)_*_cache_*.data-*" 2>/dev/null | sed -E 's/.*$(MODEL_NAME)_(.*)_cache_.*/\1/' | sort -u); do \
+			echo "  Cleaning cache files for activity pattern: $$activity_combo"; \
+			rm -f $(MODEL_NAME)_$$activity_combo_cache_*.data-* 2>/dev/null || true; \
+			rm -f $(MODEL_NAME)_$$activity_combo_cache_*.index 2>/dev/null || true; \
+			rm -f $(MODEL_NAME)_$$activity_combo_cache_*.lockfile 2>/dev/null || true; \
+		done; \
+	fi
+	
+	@# Clean up any remaining TensorFlow dataset caches
+	@echo "Cleaning up any remaining TensorFlow dataset caches..."
+	@find . -type f -name "*_cache_*.data-*" -delete
+	@find . -type f -name "*_cache_*.index" -delete
+	@find . -type f -name "*_cache_*.lockfile" -delete
+	
+	@echo "======== INITIAL CLEANUP COMPLETED ========="
+
+# Modify the run_complete target to run cleanup only at beginning
 run_complete: clean_run_artifacts
 	@echo "===== Starting complete workflow for MODEL_NAME=$(MODEL_NAME) ====="
-	@echo "0. Determining common activities between training and test directories..."
+	@echo "0. Performing comprehensive cleanup before starting..."
+	@make pre_workflow_cleanup
+	@echo "1. Determining common activities between training and test directories..."
 	
 	@# Check if directories exist
 	@# Modify to split comma-separated domains
@@ -438,14 +512,17 @@ run_complete: clean_run_artifacts
 		exit 1; \
 	fi
 	
-	@# Convert to comma-separated list and directly save to variable
-	@ACTIVITIES="$$(cat common_activities.txt | tr '\n' ',' | sed 's/,$$//')" && \
-	echo "Common activities: $$ACTIVITIES" && \
-	if [ -z "$$ACTIVITIES" ]; then \
-		echo "Error: No common activities found between training and test directories."; \
+	@# CHANGED: Instead of using common activities, use only the specified activities
+	@ACTIVITIES_COUNT=$$(echo "$(ACTIVITIES)" | tr -cd ',' | wc -c); \
+	ACTIVITIES_COUNT=$$((ACTIVITIES_COUNT + 1)); \
+	echo "Using only the $$ACTIVITIES_COUNT target activities: $(ACTIVITIES)" && \
+	if [ -z "$(ACTIVITIES)" ]; then \
+		echo "Error: No activities specified."; \
 		exit 1; \
 	fi && \
-	echo "1. Creating datasets with activities: $$ACTIVITIES" && \
+	echo "2. Filtering activities to keep only one instance of each type..." && \
+	python filter_doppler_activities.py "$(DOPPLER_DIR)" --activities "$(ACTIVITIES)" --output filtered_activities.txt && \
+	echo "3. Creating datasets with activities: $(ACTIVITIES)" && \
 	python CSI_doppler_create_dataset_train.py \
 		"$(DOPPLER_DIR)" \
 		"$(TRAIN_DOMAINS)" \
@@ -453,8 +530,10 @@ run_complete: clean_run_artifacts
 		$(SLIDING) \
 		$(WINDOW_LENGTH) \
 		$(STRIDE) \
-		"$$ACTIVITIES" \
-		$(NUM_ANTENNAS) && \
+		"$(ACTIVITIES)" \
+		$(NUM_ANTENNAS) \
+		--filtered-activities filtered_activities.txt \
+		--balance-classes && \
 	python CSI_doppler_create_dataset_test.py \
 		"$(DOPPLER_DIR)" \
 		"$(TEST_DOMAINS)" \
@@ -462,18 +541,18 @@ run_complete: clean_run_artifacts
 		$(SLIDING) \
 		$(WINDOW_LENGTH) \
 		$(STRIDE) \
-		"$$ACTIVITIES" \
-		$(NUM_ANTENNAS) && \
-	echo "2. Training model with activities: $$ACTIVITIES..." && \
-	$(MAKE) train ACTIVITIES="$$ACTIVITIES" && \
-	echo "3. Testing model with activities: $$ACTIVITIES..." && \
-	$(MAKE) test ACTIVITIES="$$ACTIVITIES" && \
-	echo "4. Calculating metrics..." && \
-	$(MAKE) model_metrics ACTIVITIES="$$ACTIVITIES" && \
-	echo "5. Generating plots..." && \
-	$(MAKE) model_plots ACTIVITIES="$$ACTIVITIES" && \
-	echo "6. Cleaning up after training..." && \
-	$(MAKE) post_training_cleanup && \
+		"$(ACTIVITIES)" \
+		$(NUM_ANTENNAS) \
+		--filtered-activities filtered_activities.txt \
+		--balance-classes && \
+	echo "4. Training model with activities: $(ACTIVITIES)..." && \
+	make train ACTIVITIES="$(ACTIVITIES)" && \
+	echo "5. Testing model with activities: $(ACTIVITIES)..." && \
+	make test ACTIVITIES="$(ACTIVITIES)" && \
+	echo "6. Calculating metrics..." && \
+	make model_metrics ACTIVITIES="$(ACTIVITIES)" && \
+	echo "7. Generating plots..." && \
+	make model_plots ACTIVITIES="$(ACTIVITIES)" && \
 	echo "===== Complete workflow finished successfully for MODEL_NAME=$(MODEL_NAME) ====="
 
 # Per-model metrics calculation
@@ -551,7 +630,7 @@ plots:
 		for setup in AR1a AR1b AR1c AR6a; do \
 			if [ -d "$(DOPPLER_DIR)$$setup" ]; then \
 				echo "Creating Doppler plots for $$setup..."; \
-				./CSI_doppler_plot_activities.py "$(DOPPLER_DIR)" "$$setup" $(FEATURE_LENGTH) $(SLIDING) "E,W,R,J,L" 0 340 || \
+				./CSI_doppler_plot_activities.py "$(DOPPLER_DIR)" "$$setup" $(FEATURE_LENGTH) $(SLIDING) "$(ACTIVITIES)" 0 340 || \
 				echo "Notice: Some errors occurred but plot generation continued"; \
 			fi; \
 		done; \
@@ -601,7 +680,7 @@ comparison_plots:
 		for setup in AR1a AR1b AR1c AR6a; do \
 			if [ -d "$(DOPPLER_DIR)$$setup" ]; then \
 				echo "Creating comparison plots for $$setup..."; \
-				./generate_doppler_comparison_plots.py "$(DOPPLER_DIR)" "$$setup" $(FEATURE_LENGTH) $(SLIDING) "E,W,R,J,L" || \
+				./generate_doppler_comparison_plots.py "$(DOPPLER_DIR)" "$$setup" $(FEATURE_LENGTH) $(SLIDING) "$(ACTIVITIES)" || \
 				echo "Notice: Some errors occurred but comparison plot generation continued"; \
 			fi; \
 		done; \
@@ -618,12 +697,12 @@ comparison_plots:
 # Add a target to run a completely clean experiment
 clean_experiment: clean_all
 	@echo "Starting clean experiment with TEST_DOMAINS=$(TEST_DOMAINS) and TRAIN_DOMAINS=$(TRAIN_DOMAINS)..."
-	@$(MAKE) run_complete TEST_DOMAINS="$(TEST_DOMAINS)" TRAIN_DOMAINS="$(TRAIN_DOMAINS)" MODEL_NAME="$(MODEL_NAME)"
+	@make run_complete TEST_DOMAINS="$(TEST_DOMAINS)" TRAIN_DOMAINS="$(TRAIN_DOMAINS)" MODEL_NAME="$(MODEL_NAME)"
 
-# Add a thorough post-training cleanup target
-post_training_cleanup:
-	@echo "======== Performing post-training cleanup ========"
-	@echo "Cleaning up training artifacts that may affect future runs..."
+# Update the post_training_cleanup target name and message
+artifact_cleanup:
+	@echo "======== Performing artifact cleanup ========"
+	@echo "Cleaning up temporary files and artifacts..."
 	
 	@# Clean up TensorFlow cache files
 	@echo "1. Removing TensorFlow dataset cache files..."
@@ -642,11 +721,100 @@ post_training_cleanup:
 	@rm -rf ./logs/* 2>/dev/null || true
 	@rm -rf ./tensorboard_logs/* 2>/dev/null || true
 	
+	@# Clean up model history files and weights
+	@echo "4. Removing model history files and temporary weights..."
+	@rm -f *.history.json 2>/dev/null || true
+	@rm -f *.history.csv 2>/dev/null || true
+	@rm -f *.history.pkl 2>/dev/null || true
+	@rm -f ./weights*.h5 2>/dev/null || true
+	@rm -f ./best_weights*.h5 2>/dev/null || true
+	@rm -f ./temp_model*.h5 2>/dev/null || true
+	@rm -f ./model_snapshot*.h5 2>/dev/null || true
+	
+	@# Clean up confusion matrices and other output plots in working directory
+	@echo "5. Removing temporary confusion matrices and metric outputs..."
+	@rm -f confusion_matrix_*.txt 2>/dev/null || true
+	@rm -f accuracy_*.txt 2>/dev/null || true
+	@rm -f precision_*.txt 2>/dev/null || true
+	@rm -f recall_*.txt 2>/dev/null || true
+	@rm -f f1_*.txt 2>/dev/null || true
+	
+	@# Clean up temporary numpy arrays and pickle files
+	@echo "6. Removing numpy cache files and pickles..."
+	@rm -f *.npy 2>/dev/null || true
+	@rm -f *.npz 2>/dev/null || true
+	@rm -f *.pkl 2>/dev/null || true
+	@rm -f *.pickle 2>/dev/null || true
+	
+	@# Clean up TensorFlow saved model directories
+	@echo "7. Removing TensorFlow saved model directories..."
+	@find . -type d -name "saved_model" -exec rm -rf {} \; 2>/dev/null || true
+	
+	@# Remove Keras backend session files
+	@echo "8. Removing Keras backend session files..."
+	@rm -f keras_session_* 2>/dev/null || true
+	@rm -f .keras_history* 2>/dev/null || true
+	
 	@# Clean up temporary activity files
-	@echo "4. Removing temporary activity files..."
+	@echo "9. Removing temporary activity files..."
 	@rm -f train_activities.txt test_activities.txt common_activities.txt common_activities.csv
 	
+	@# Clean up any Python __pycache__ directories that might cache imports
+	@echo "10. Removing Python cache directories..."
+	@find . -type d -name "__pycache__" -exec rm -rf {} \; 2>/dev/null || true
+	@find . -name "*.pyc" -delete
+	
 	@# Print information about cleanup (keeping the actual model files)
-	@echo "5. Note: Model files (.h5) and history files have been preserved."
-	@echo "   If you want to remove these as well, run 'make clean_all'"
-	@echo "======== Post-training cleanup completed ========"
+	@echo "Note: If you want to remove all models and results, run 'make clean_all'"
+	@echo "======== Artifact cleanup completed ========"
+
+# Update the clean_all target to reference the new name
+clean_all: artifact_cleanup
+	@echo "Removing models..."
+	@rm -rf $(MODEL_DIR)*.h5
+	@echo "Removing results..."
+	@rm -rf ./results/*
+	@echo "Removing plots..."
+	@rm -rf ./plots/*
+	@echo "All artifacts cleaned."
+
+# Update clean_model to use the new name
+clean_model:
+	@echo "Cleaning all artifacts for model: $(MODEL_NAME)..."
+	@if [ -z "$(MODEL_NAME)" ]; then \
+		echo "Error: MODEL_NAME must be specified."; \
+		echo "Usage: make clean_model MODEL_NAME=my_model_name"; \
+		exit 1; \
+	fi
+	
+	@# Clean model files
+	@echo "1. Removing model files..."
+	@rm -f $(MODEL_NAME)*.h5 2>/dev/null || true
+	@rm -f *$(MODEL_NAME)*.h5 2>/dev/null || true
+	
+	@# Clean history files
+	@echo "2. Removing history files..."
+	@rm -f $(MODEL_NAME)*.json 2>/dev/null || true
+	@rm -f $(MODEL_NAME)*.csv 2>/dev/null || true
+	@rm -f $(MODEL_NAME)*.pkl 2>/dev/null || true
+	@rm -f $(MODEL_NAME)*.pickle 2>/dev/null || true
+	
+	@# Clean metric files
+	@echo "3. Removing metric files..."
+	@rm -f confusion_matrix_$(MODEL_NAME)*.txt 2>/dev/null || true
+	@rm -f accuracy_$(MODEL_NAME)*.txt 2>/dev/null || true
+	@rm -f precision_$(MODEL_NAME)*.txt 2>/dev/null || true
+	@rm -f recall_$(MODEL_NAME)*.txt 2>/dev/null || true
+	@rm -f f1_$(MODEL_NAME)*.txt 2>/dev/null || true
+	
+	@# Clean results files
+	@echo "4. Removing result files..."
+	@if [ -d "./results" ]; then \
+		find ./results -name "*$(MODEL_NAME)*" -type f -delete 2>/dev/null || true; \
+	fi
+	
+	@# Also run artifact_cleanup for general cleanup
+	@echo "5. Running general cleanup..."
+	@make artifact_cleanup
+	
+	@echo "All artifacts for model $(MODEL_NAME) have been cleaned."

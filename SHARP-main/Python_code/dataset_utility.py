@@ -1,4 +1,3 @@
-
 """
     Copyright (C) 2022 Francesca Meneghello
     contact: meneghello@dei.unipd.it
@@ -178,3 +177,65 @@ def create_dataset_single(csi_matrix_files, labels_stride, stream_ant, input_sha
     if prefetch:
         dataset_csi = dataset_csi.prefetch(tf.data.AUTOTUNE)
     return dataset_csi
+
+
+def balance_classes_by_undersampling(data, labels, random_seed=42):
+    """
+    Balance classes in a dataset by undersampling the majority classes to match the minority class count.
+    
+    Args:
+        data: List of data samples
+        labels: List of corresponding labels for each data sample
+        random_seed: Random seed for reproducibility 
+        
+    Returns:
+        balanced_data: List of data samples after balancing
+        balanced_labels: List of corresponding labels after balancing
+    """
+    np.random.seed(random_seed)
+    
+    # Convert labels to numpy array if they're not already
+    labels_array = np.array(labels)
+    
+    # Get unique labels and their counts
+    unique_labels, counts = np.unique(labels_array, return_counts=True)
+    print(f"Original class distribution: {dict(zip(unique_labels, counts))}")
+    
+    # Find the size of the minority class
+    min_count = np.min(counts)
+    print(f"Minority class count: {min_count}")
+    
+    # Create balanced dataset by undersampling
+    balanced_data = []
+    balanced_labels = []
+    
+    for label in unique_labels:
+        # Get indices of samples with this label
+        indices = np.where(labels_array == label)[0]
+        
+        # If we have more samples than the minority class, randomly select subset
+        if len(indices) > min_count:
+            # Randomly select samples
+            selected_indices = np.random.choice(indices, min_count, replace=False)
+        else:
+            # Use all samples for minority class
+            selected_indices = indices
+        
+        # Add selected samples to balanced dataset
+        for idx in selected_indices:
+            balanced_data.append(data[idx])
+            balanced_labels.append(labels[idx])
+    
+    # Shuffle the balanced dataset
+    combined = list(zip(balanced_data, balanced_labels))
+    np.random.shuffle(combined)
+    balanced_data, balanced_labels = zip(*combined)
+    
+    # Convert back to lists
+    balanced_data = list(balanced_data)
+    balanced_labels = list(balanced_labels)
+    
+    print(f"Balanced class distribution: {dict(zip(unique_labels, np.unique(balanced_labels, return_counts=True)[1]))}")
+    print(f"Original dataset size: {len(data)}, Balanced dataset size: {len(balanced_data)}")
+    
+    return balanced_data, balanced_labels

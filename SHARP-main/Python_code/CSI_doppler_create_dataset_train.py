@@ -20,7 +20,7 @@ import numpy as np
 import pickle
 import math as mt
 import shutil
-from dataset_utility import create_windows_antennas, convert_to_number
+from dataset_utility import create_windows_antennas, convert_to_number, balance_classes_by_undersampling
 
 
 if __name__ == '__main__':
@@ -33,6 +33,9 @@ if __name__ == '__main__':
     parser.add_argument('stride_lengths', help='Number of samples to stride', type=int)
     parser.add_argument('labels_activities', help='Labels of the activities to be considered')
     parser.add_argument('n_tot', help='Number of streams * number of antennas', type=int)
+    parser.add_argument('--filtered-activities', help='File containing list of filtered activity directories to use')
+    parser.add_argument('--bandwidth', default=80, help='Bandwidth (MHz) used in CSI measurement', type=int)
+    parser.add_argument('--balance-classes', action='store_true', help='Apply class balancing by undersampling after window creation')
     args = parser.parse_args()
 
     labels_activities = args.labels_activities
@@ -50,6 +53,13 @@ if __name__ == '__main__':
     print(f"Labels dictionary: {csi_label_dict}")
     print(f"Activities string: {activities}")
     print(f"Number of streams * antennas: {n_tot}")
+    
+    # If filtered activities file is provided, read the list of directories to use
+    filtered_activity_dirs = []
+    if args.filtered_activities and os.path.exists(args.filtered_activities):
+        with open(args.filtered_activities, 'r') as f:
+            filtered_activity_dirs = [line.strip() for line in f if line.strip()]
+        print(f"Using {len(filtered_activity_dirs)} filtered activity directories from {args.filtered_activities}")
 
     for subdir in list_subdir.split(','):
         exp_dir = os.path.join(args.dir, subdir)
@@ -77,11 +87,41 @@ if __name__ == '__main__':
             print(f"Removed existing directory: {path_complete}")
 
         names = []
-        # Recursively find all .txt files in the subdirectory
-        for root, dirs, files in os.walk(exp_dir):
-            for file in files:
-                if file.endswith('.txt') and 'stream' in file:
-                    names.append(os.path.join(root, file[:-4]))  # Remove .txt extension
+        
+        if filtered_activity_dirs:
+            # Use only files from the filtered activity directories for this subdirectory
+            domain_filtered_dirs = [d for d in filtered_activity_dirs if d.startswith(subdir) or d.startswith(f"{subdir}/")]
+            
+            if not domain_filtered_dirs:
+                print(f"No filtered activity directories found for {subdir}, skipping.")
+                continue
+                
+            print(f"Using {len(domain_filtered_dirs)} filtered activity directories for {subdir}")
+            
+            # Find all stream files in the filtered directories
+            for activity_dir in domain_filtered_dirs:
+                # Create full path to the activity directory
+                # Since filtered_activity_dirs contains relative paths (AR8a/AR8a_J1),
+                # we join with args.dir without risk of duplication
+                full_activity_dir = os.path.join(args.dir, activity_dir)
+                
+                if not os.path.exists(full_activity_dir):
+                    print(f"Warning: Activity directory does not exist: {full_activity_dir}")
+                    continue
+                
+                # Find all stream files in this activity directory
+                stream_files = glob.glob(os.path.join(full_activity_dir, f"*_stream_*.txt"))
+                for file in stream_files:
+                    names.append(file[:-4])  # Remove .txt extension
+                
+                print(f"Found {len(stream_files)} stream files in {activity_dir}")
+        else:
+            # Recursively find all .txt files in the subdirectory
+            for root, dirs, files in os.walk(exp_dir):
+                for file in files:
+                    if file.endswith('.txt') and 'stream' in file:
+                        names.append(os.path.join(root, file[:-4]))  # Remove .txt extension
+        
         names.sort()
 
         # Debug: Print the number of files found
@@ -214,6 +254,12 @@ if __name__ == '__main__':
                     print(f'ERROR - shapes mismatch in {list_sets_name[set_idx]}: {len(csi_matrices_set)} vs {np.sum(num_windows)}')
                 else:
                     print(f"Created {len(csi_matrices_set)} windows for {list_sets_name[set_idx]} set")
+                
+                # Apply class balancing if requested
+                if args.balance_classes:
+                    print(f"Applying class balancing to {list_sets_name[set_idx]} windows...")
+                    csi_matrices_set, labels_set = balance_classes_by_undersampling(csi_matrices_set, labels_set, random_seed=42)
+                    print(f"After balancing: {len(csi_matrices_set)} windows")
 
                 names_set = []
                 suffix = '.txt'

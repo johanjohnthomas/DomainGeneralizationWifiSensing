@@ -210,7 +210,17 @@ def generate_doppler_plots(args):
     setup_dir = os.path.join(args.doppler_dir, setup)
     
     # Find different activity types
-    activities = ['empty', 'sitting', 'walking', 'running', 'jumping']
+    try:
+        # Read activities from common_activities.txt
+        with open("common_activities.txt", "r") as activity_file:
+            activities = [line.strip() for line in activity_file if line.strip()]
+            print(f"Using activities from common_activities.txt: {activities}")
+    except Exception as e:
+        # Fallback to default activities
+        print(f"Warning: Could not read common_activities.txt: {e}")
+        activities = ['E', 'J', 'L', 'R', 'W']
+        print(f"Using fallback activities: {activities}")
+    
     found_activities = []
     
     for activity in activities:

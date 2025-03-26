@@ -60,7 +60,8 @@ if __name__ == '__main__':
     name_base = args.name_base
     activity_str = '_'.join(csi_act.split(','))
     
-    # Enhanced cleanup of old cache files
+    # Enhanced cleanup of old cache files - DISABLED TO PERFORM CLEANUP ONLY AT END OF WORKFLOW
+    """
     print(f"Cleaning up previous cache and temporary files for {name_base}_{activity_str}...")
     cache_files_pattern = f"{name_base}_{activity_str}_cache_complete*"
     
@@ -89,6 +90,7 @@ if __name__ == '__main__':
     if os.path.exists(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_complete.data-00000-of-00001'):
         os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_complete.data-00000-of-00001')
         os.remove(name_base + '_' +  '_'.join(csi_act.split(',')) + '_cache_complete.index')
+    """
 
     subdirs_complete = args.subdirs  # string
     labels_complete = []
@@ -247,7 +249,8 @@ if __name__ == '__main__':
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)
         
-    # Final cleanup of temporary files after testing completes
+    # Final cleanup of temporary files after testing completes - DISABLED TO PERFORM CLEANUP ONLY AT END OF WORKFLOW
+    """
     print("\nCleaning up after testing...")
     
     # Clean up TensorFlow cache files
@@ -261,5 +264,6 @@ if __name__ == '__main__':
                 os.remove(f)
             except Exception as e:
                 print(f"  Warning: Could not remove {f}: {e}")
-    
+    """
+
     print("Testing completed successfully!")

@@ -39,8 +39,16 @@ if __name__ == '__main__':
     # Create plots directory if it doesn't exist
     os.makedirs('./plots', exist_ok=True)
 
-    # Default activities if none specified
-    default_activities = np.asarray(['empty', 'sitting', 'walking', 'running', 'jumping'])
+    # Try to read activities from common_activities.txt
+    try:
+        with open("common_activities.txt", "r") as activity_file:
+            default_activities = np.asarray([line.strip() for line in activity_file if line.strip()])
+            print(f"Using activities from common_activities.txt: {default_activities}")
+    except Exception as e:
+        # Fallback activities
+        print(f"Warning: Could not read common_activities.txt: {e}")
+        default_activities = np.asarray(['E', 'J', 'L', 'R', 'W'])
+        print(f"Using fallback activities: {default_activities}")
     
     # Parse the input activities
     labels_activities = args.labels_activities
@@ -210,10 +218,11 @@ if __name__ == '__main__':
         # Create a copy for the reduced plot (removing walking)
         traces_activities_reduced = list(traces_activities)  # Create a copy
         
-        # If we have at least 3 activities, remove the third one (walking)
+        # If we have at least 3 activities, remove the third one
         if len(traces_activities_reduced) >= 3:
             traces_activities_reduced = safe_delete_activity(traces_activities_reduced, 2)
-            reduced_activities = np.asarray(['empty', 'sitting', 'running', 'jumping'])
+            # Create a reduced activities list - remove the 3rd activity (index 2)
+            reduced_activities = np.delete(default_activities, 2) if len(default_activities) > 2 else default_activities
             
             # Generate compact 2 version
             name_p = './plots/csi_doppler_activities_' + '_' + args.sub_dir + '_compact_2.pdf'

@@ -57,7 +57,8 @@ if __name__ == '__main__':
     name_base = args.name_base
     activity_str = '_'.join(csi_act.split(','))
     
-    # Enhanced cleanup of old cache files
+    # Enhanced cleanup of old cache files - DISABLED TO PERFORM CLEANUP ONLY AT END OF WORKFLOW
+    """
     print(f"Cleaning up previous cache and temporary files for {name_base}_{activity_str}...")
     cache_files_pattern = f"{name_base}_{activity_str}_cache_*"
     
@@ -101,6 +102,7 @@ if __name__ == '__main__':
         if os.path.exists(f):
             print(f"Removing lockfile: {f}")
             os.remove(f)
+    """
 
     subdirs_training = args.subdirs  # string
     labels_train = []
@@ -361,8 +363,9 @@ if __name__ == '__main__':
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)
 
-    # Final cleanup of temporary files after training completes
-    print("\nCleaning up after training...")
+    # Final cleanup of temporary files after training completes - DISABLED TO PERFORM CLEANUP ONLY AT END OF WORKFLOW
+    """
+    print("\nCleaning up temporary files...")
     
     # Clean up TensorFlow cache files
     print("1. Removing TensorFlow dataset cache files...")
@@ -375,5 +378,6 @@ if __name__ == '__main__':
                 os.remove(f)
             except Exception as e:
                 print(f"  Warning: Could not remove {f}: {e}")
+    """
     
     print("Training completed successfully!")

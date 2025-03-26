@@ -39,8 +39,16 @@ def generate_comparison_plots(doppler_dir, setup, feature_length, sliding, label
     # Calculate the Doppler velocity
     delta_v = round(v_light / (Tc * fc * feature_length), 3)
     
-    # Default activities if none specified
-    default_activities = np.asarray(['empty', 'sitting', 'walking', 'running', 'jumping'])
+    # Try to read activities from common_activities.txt
+    try:
+        with open("common_activities.txt", "r") as activity_file:
+            default_activities = np.asarray([line.strip() for line in activity_file if line.strip()])
+            print(f"Using activities from common_activities.txt: {default_activities}")
+    except Exception as e:
+        # Fallback activities
+        print(f"Warning: Could not read common_activities.txt: {e}")
+        default_activities = np.asarray(['E', 'J', 'L', 'R', 'W'])
+        print(f"Using fallback activities: {default_activities}")
     
     # Parse the input activities
     activity_labels = []
