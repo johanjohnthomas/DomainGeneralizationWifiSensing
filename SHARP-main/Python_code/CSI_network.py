@@ -22,6 +22,7 @@ from dataset_utility import create_dataset_single, expand_antennas
 from network_utility import *
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 import glob
+import shutil
 
 
 if __name__ == '__main__':
@@ -56,7 +57,32 @@ if __name__ == '__main__':
     name_base = args.name_base
     activity_str = '_'.join(csi_act.split(','))
     
+    # Enhanced cleanup of old cache files
+    print(f"Cleaning up previous cache and temporary files for {name_base}_{activity_str}...")
+    cache_files_pattern = f"{name_base}_{activity_str}_cache_*"
+    
     # Remove cache data files
+    for pattern in [f"{cache_files_pattern}.data-*", f"{cache_files_pattern}.index", f"{cache_files_pattern}.lockfile"]:
+        for f in glob.glob(pattern):
+            print(f"Removing: {f}")
+            try:
+                os.remove(f)
+            except Exception as e:
+                print(f"Warning: Could not remove {f}: {e}")
+    
+    # Remove any TensorFlow logs that might interfere
+    for log_dir in ["./logs", "./tensorboard_logs"]:
+        if os.path.exists(log_dir):
+            for f in glob.glob(f"{log_dir}/*{name_base}*"):
+                try:
+                    if os.path.isdir(f):
+                        shutil.rmtree(f)
+                    else:
+                        os.remove(f)
+                except Exception as e:
+                    print(f"Warning: Could not remove {f}: {e}")
+    
+    # Original cleanup code (keeping for backward compatibility)
     if os.path.exists(name_base + '_' + activity_str + '_cache_train.data-00000-of-00001'):
         os.remove(name_base + '_' + activity_str + '_cache_train.data-00000-of-00001')
         os.remove(name_base + '_' + activity_str + '_cache_train.index')
@@ -334,3 +360,20 @@ if __name__ == '__main__':
                 str(bandwidth) + '_subband_' + str(sub_band) + '.txt'
     with open(name_file, "wb") as fp:  # Pickling
         pickle.dump(metrics_matrix_dict, fp)
+
+    # Final cleanup of temporary files after training completes
+    print("\nCleaning up after training...")
+    
+    # Clean up TensorFlow cache files
+    print("1. Removing TensorFlow dataset cache files...")
+    for pattern in [f"{name_base}_{activity_str}_cache_*.data-*", 
+                    f"{name_base}_{activity_str}_cache_*.index", 
+                    f"{name_base}_{activity_str}_cache_*.lockfile"]:
+        for f in glob.glob(pattern):
+            try:
+                print(f"  Removing: {f}")
+                os.remove(f)
+            except Exception as e:
+                print(f"  Warning: Could not remove {f}: {e}")
+    
+    print("Training completed successfully!")

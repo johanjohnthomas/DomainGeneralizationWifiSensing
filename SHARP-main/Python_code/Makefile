@@ -6,6 +6,11 @@ DATASET_DIR = ./datasets/
 MODEL_DIR = ./models/
 RESULTS_DIR = ./results/
 
+# Define a comma variable for list processing
+comma := ,
+empty := 
+space := $(empty) $(empty)
+
 # CUDA Environment Configuration for TensorFlow
 CUDA_HOME = /usr/lib/cuda
 CUDNN_PATH = /usr/lib/x86_64-linux-gnu
@@ -102,7 +107,7 @@ all: data_processing datasets train test metrics plots
 # Data Processing Pipeline
 data_processing:
 	# Phase Sanitization
-	@for setup in $(AR_SETUPS); do \
+	@for setup in $(subst $(comma), ,$(AR_SETUPS)); do \
 		echo "Processing $$setup..."; \
 		python CSI_phase_sanitization_signal_preprocessing.py "$(INPUT_DIR)$$setup/" 1 - $(NSS) $(NCORES) 0; \
 		python CSI_phase_sanitization_H_estimation.py "$(INPUT_DIR)$$setup/" 1 - $(NSS) $(NCORES) 0 -1; \
@@ -110,7 +115,7 @@ data_processing:
 	done
 	
 	# Doppler Computation
-	@for setup in $(AR_SETUPS); do \
+	@for setup in $(subst $(comma), ,$(AR_SETUPS)); do \
 		echo "Calculating Doppler for $$setup..."; \
 		python CSI_doppler_computation.py "$(PROCESSED_PHASE_DIR)" "$$setup" "$(DOPPLER_DIR)" 0 0 $(SAMPLE_LENGTH) $(SLIDING) $(NOISE_LEVEL) --bandwidth 80; \
 	done
@@ -163,13 +168,13 @@ test_training:
 	RESULTS_PATH=$(RESULTS_DIR)$$RQ_NUMBER/ && \
 	echo "Using RESULTS_PATH: $$RESULTS_PATH" && \
 	\
-	make run_complete TEST_DOMAINS="$(LABORATORY)" TRAIN_DOMAINS="$(KITCHEN)" MODEL_NAME=no_bedroom && \
+	make run_complete TEST_DOMAINS="$(OFFICE)" TRAIN_DOMAINS="$(KITCHEN)" MODEL_NAME=no_bedroom && \
 	\
 	# Ensure environment variables are exported for metrics calculation \
 	export TRAIN_DOMAINS="$(KITCHEN)" && \
-	export TEST_DOMAINS="$(LABORATORY)" && \
+	export TEST_DOMAINS="$(OFFICE)" && \
 	echo "Running metrics calculation with explicitly set domains..." && \
-	find $$RESULTS_PATH/metrics -name 'complete_different_*.txt' -exec bash -c 'TRAIN_DOMAINS="$(KITCHEN)" TEST_DOMAINS="$(LABORATORY)" python CSI_network_metrics.py {} "$(ACTIVITIES)"' \; && \
+	find $$RESULTS_PATH/metrics -name 'complete_different_*.txt' -exec bash -c 'TRAIN_DOMAINS="$(KITCHEN)" TEST_DOMAINS="$(OFFICE)" python CSI_network_metrics.py {} "$(ACTIVITIES)"' \; && \
 	echo "Metrics recalculated with correct domain values"
 
 # Leave-One-Domain-Out Evaluation (RQ1)
@@ -213,6 +218,8 @@ train:
 	$(TF_ENV_VARS) \
 	python CSI_network.py "$(DOPPLER_DIR)" "$(TRAIN_DOMAINS)" \
 	$(FEATURE_LENGTH) $(WINDOW_LENGTH) 1 $(BATCH_SIZE) $(NUM_ANTENNAS) $(MODEL_NAME) "$(ACTIVITIES)" --bandwidth 80
+	@$(MAKE) post_training_cleanup
+	@echo "Training completed and temporary files cleaned"
 
 # Automated Test Target
 test:
@@ -280,7 +287,7 @@ clean_run_artifacts:
 # 	@echo "Dataset directories cleaned."
 
 # Add comprehensive cleanup target
-clean_all: clean_run_artifacts
+clean_all: post_training_cleanup
 	@echo "Removing models..."
 	@rm -rf $(MODEL_DIR)*.h5
 	@echo "Removing results..."
@@ -347,15 +354,16 @@ run_complete: clean_run_artifacts
 	@echo "0. Determining common activities between training and test directories..."
 	
 	@# Check if directories exist
-	@for d in $(TRAIN_DOMAINS); do \
-		if [ ! -d "$(DOPPLER_DIR)$$d" ]; then \
-			echo "Error: Training directory $(DOPPLER_DIR)$$d does not exist."; \
+	@# Modify to split comma-separated domains
+	@for domain in $(subst $(comma), ,$(TRAIN_DOMAINS)); do \
+		if [ ! -d "$(DOPPLER_DIR)$$domain" ]; then \
+			echo "Error: Training directory $(DOPPLER_DIR)$$domain does not exist."; \
 			exit 1; \
 		fi; \
 	done
-	@for d in $(TEST_DOMAINS); do \
-		if [ ! -d "$(DOPPLER_DIR)$$d" ]; then \
-			echo "Error: Test directory $(DOPPLER_DIR)$$d does not exist."; \
+	@for domain in $(subst $(comma), ,$(TEST_DOMAINS)); do \
+		if [ ! -d "$(DOPPLER_DIR)$$domain" ]; then \
+			echo "Error: Test directory $(DOPPLER_DIR)$$domain does not exist."; \
 			exit 1; \
 		fi; \
 	done
@@ -363,22 +371,22 @@ run_complete: clean_run_artifacts
 	@# Step 1: Extract activities from training directories
 	@echo "Extracting activities from training directories: $(TRAIN_DOMAINS)"
 	@echo "Looking for activity directories..."
-	@for d in $(TRAIN_DOMAINS); do \
-		echo "Checking domain: $$d"; \
-		find $(DOPPLER_DIR)$$d -maxdepth 1 -type d -name "$$d"_* | \
+	@for domain in $(subst $(comma), ,$(TRAIN_DOMAINS)); do \
+		echo "Checking domain: $$domain"; \
+		find $(DOPPLER_DIR)$$domain -maxdepth 1 -type d -name "$$domain"_* | \
 		grep -v "train_antennas\|test_antennas\|val_antennas\|complete_antennas" || echo "No matching directories found"; \
 	done
-	@(for d in $(TRAIN_DOMAINS); do \
-		find $(DOPPLER_DIR)$$d -maxdepth 1 -type d -name "$$d"_* | \
+	@(for domain in $(subst $(comma), ,$(TRAIN_DOMAINS)); do \
+		find $(DOPPLER_DIR)$$domain -maxdepth 1 -type d -name "$$domain"_* | \
 		grep -v "train_antennas\|test_antennas\|val_antennas\|complete_antennas" | \
 		xargs -I{} basename {} | cut -d '_' -f 2 | cut -c1; \
 	done) | sort -u > train_activities.txt
 	@if [ ! -s train_activities.txt ]; then \
 		echo "Error: No activity directories found in training domains."; \
 		echo "Available directories in training domains:"; \
-		for d in $(TRAIN_DOMAINS); do \
-			echo "Content of $(DOPPLER_DIR)$$d/:"; \
-			ls -la $(DOPPLER_DIR)$$d/; \
+		for domain in $(subst $(comma), ,$(TRAIN_DOMAINS)); do \
+			echo "Content of $(DOPPLER_DIR)$$domain/:"; \
+			ls -la $(DOPPLER_DIR)$$domain/; \
 		done; \
 		exit 1; \
 	fi
@@ -387,22 +395,22 @@ run_complete: clean_run_artifacts
 	@# Step 2: Extract activities from test directories
 	@echo "Extracting activities from test directories: $(TEST_DOMAINS)"
 	@echo "Looking for activity directories..."
-	@for d in $(TEST_DOMAINS); do \
-		echo "Checking domain: $$d"; \
-		find $(DOPPLER_DIR)$$d -maxdepth 1 -type d -name "$$d"_* | \
+	@for domain in $(subst $(comma), ,$(TEST_DOMAINS)); do \
+		echo "Checking domain: $$domain"; \
+		find $(DOPPLER_DIR)$$domain -maxdepth 1 -type d -name "$$domain"_* | \
 		grep -v "train_antennas\|test_antennas\|val_antennas\|complete_antennas" || echo "No matching directories found"; \
 	done
-	@(for d in $(TEST_DOMAINS); do \
-		find $(DOPPLER_DIR)$$d -maxdepth 1 -type d -name "$$d"_* | \
+	@(for domain in $(subst $(comma), ,$(TEST_DOMAINS)); do \
+		find $(DOPPLER_DIR)$$domain -maxdepth 1 -type d -name "$$domain"_* | \
 		grep -v "train_antennas\|test_antennas\|val_antennas\|complete_antennas" | \
 		xargs -I{} basename {} | cut -d '_' -f 2 | cut -c1; \
 	done) | sort -u > test_activities.txt
 	@if [ ! -s test_activities.txt ]; then \
 		echo "Error: No activity directories found in test domains."; \
 		echo "Available directories in test domains:"; \
-		for d in $(TEST_DOMAINS); do \
-			echo "Content of $(DOPPLER_DIR)$$d/:"; \
-			ls -la $(DOPPLER_DIR)$$d/; \
+		for domain in $(subst $(comma), ,$(TEST_DOMAINS)); do \
+			echo "Content of $(DOPPLER_DIR)$$domain/:"; \
+			ls -la $(DOPPLER_DIR)$$domain/; \
 		done; \
 		exit 1; \
 	fi
@@ -464,6 +472,8 @@ run_complete: clean_run_artifacts
 	$(MAKE) model_metrics ACTIVITIES="$$ACTIVITIES" && \
 	echo "5. Generating plots..." && \
 	$(MAKE) model_plots ACTIVITIES="$$ACTIVITIES" && \
+	echo "6. Cleaning up after training..." && \
+	$(MAKE) post_training_cleanup && \
 	echo "===== Complete workflow finished successfully for MODEL_NAME=$(MODEL_NAME) ====="
 
 # Per-model metrics calculation
@@ -479,7 +489,7 @@ model_plots:
 	@# Generate confusion matrix plots
 	@find $(RESULTS_PATH)metrics -name 'confusion_matrix_*.txt' -exec python -W ignore CSI_network_metrics_plot.py {} \; 2>/dev/null || true
 	@# Generate activity plots for specific environments in the test domains
-	@for domain in $(TEST_DOMAINS); do \
+	@for domain in $(subst $(comma), ,$(TEST_DOMAINS)); do \
 		echo "Creating activity plots for domain: $$domain"; \
 		python CSI_doppler_plot_activities.py "$(DOPPLER_DIR)" "$$domain" $(FEATURE_LENGTH) $(SLIDING) "$(ACTIVITIES)" 0 $(WINDOW_LENGTH) 2>/dev/null || true; \
 	done
@@ -609,3 +619,34 @@ comparison_plots:
 clean_experiment: clean_all
 	@echo "Starting clean experiment with TEST_DOMAINS=$(TEST_DOMAINS) and TRAIN_DOMAINS=$(TRAIN_DOMAINS)..."
 	@$(MAKE) run_complete TEST_DOMAINS="$(TEST_DOMAINS)" TRAIN_DOMAINS="$(TRAIN_DOMAINS)" MODEL_NAME="$(MODEL_NAME)"
+
+# Add a thorough post-training cleanup target
+post_training_cleanup:
+	@echo "======== Performing post-training cleanup ========"
+	@echo "Cleaning up training artifacts that may affect future runs..."
+	
+	@# Clean up TensorFlow cache files
+	@echo "1. Removing TensorFlow dataset cache files..."
+	@find . -type f -name "*_cache_*.data-*" -delete
+	@find . -type f -name "*_cache_*.index" -delete
+	@find . -type f -name "*_cache_*.lockfile" -delete
+	
+	@# Clean up TensorFlow checkpoint files (if any exist)
+	@echo "2. Removing any TensorFlow checkpoint files..."
+	@find . -type d -name "checkpoints" -exec rm -rf {} \; 2>/dev/null || true
+	@find . -path "*/checkpoint/*" -delete 2>/dev/null || true
+	@find . -name "checkpoint" -type f -delete 2>/dev/null || true
+	
+	@# Clean up TensorFlow logs
+	@echo "3. Removing TensorFlow logs..."
+	@rm -rf ./logs/* 2>/dev/null || true
+	@rm -rf ./tensorboard_logs/* 2>/dev/null || true
+	
+	@# Clean up temporary activity files
+	@echo "4. Removing temporary activity files..."
+	@rm -f train_activities.txt test_activities.txt common_activities.txt common_activities.csv
+	
+	@# Print information about cleanup (keeping the actual model files)
+	@echo "5. Note: Model files (.h5) and history files have been preserved."
+	@echo "   If you want to remove these as well, run 'make clean_all'"
+	@echo "======== Post-training cleanup completed ========"
