@@ -204,8 +204,6 @@ leave_one_bedroom:
 leave_one_living:
 	make run_complete TEST_DOMAINS="$(LIVING_ROOM)" TRAIN_DOMAINS="$(BEDROOM),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_living
 
-leave_one_kitchen:
-	make run_complete TEST_DOMAINS="$(KITCHEN)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(LABORATORY),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_kitchen
 
 leave_one_lab:
 	make run_complete TEST_DOMAINS="$(LABORATORY)" TRAIN_DOMAINS="$(BEDROOM),$(LIVING_ROOM),$(KITCHEN),$(OFFICE),$(SEMI_ANECHOIC)" MODEL_NAME=no_lab
